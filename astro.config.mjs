@@ -1,9 +1,13 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
+// 构建产物部署在 GitHub Pages 的项目子路径下，但本地 `astro dev` 不应该要求
+// 记住这个前缀——否则直接打开 http://localhost:4321/ 每个栏目都是 404。
+const isDevServer = process.env.NODE_ENV === 'development';
+
 export default defineConfig({
   site: 'https://yifeistarwang-coder.github.io/awesome-kernel-agent',
-  base: '/awesome-kernel-agent',
+  base: isDevServer ? '/' : '/awesome-kernel-agent',
   trailingSlash: 'always',
   integrations: [
     starlight({
