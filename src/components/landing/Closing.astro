@@ -1,4 +1,5 @@
 ---
+const base = import.meta.env.BASE_URL;
 ---
 
 <section class="ka-closing" aria-labelledby="ka-cta-title">
@@ -12,7 +13,7 @@
 					从导读出发，读完六章，做完全部练习；然后把 KDA 或 Humanize 的流程换成你自己的任务。先求写对，再求写快。
 				</p>
 				<div class="ka-cta-actions">
-					<a class="ka-btn ka-btn-primary" href="/guide/intro/">
+					<a class="ka-btn ka-btn-primary" href={`${base}guide/intro/`}>
 						开始学习
 						<svg
 							viewBox="0 0 20 20"
@@ -29,7 +30,7 @@
 							<path d="m10.5 5.5 4.5 4.5-4.5 4.5"></path>
 						</svg>
 					</a>
-					<a class="ka-btn ka-btn-secondary" href="/exercises/">
+					<a class="ka-btn ka-btn-secondary" href={`${base}exercises/`}>
 						打开练习册
 						<svg
 							viewBox="0 0 20 20"
@@ -49,9 +50,9 @@
 					</a>
 				</div>
 				<div class="ka-cta-links">
-					<a href="/glossary/">术语表 →</a>
-					<a href="/resources/">资料库 →</a>
-					<a href="/changelog/">更新日志 →</a>
+					<a href={`${base}glossary/`}>术语表 →</a>
+					<a href={`${base}resources/`}>资料库 →</a>
+					<a href={`${base}changelog/`}>更新日志 →</a>
 				</div>
 			</div>
 		</div>
@@ -62,7 +63,7 @@
 			</p>
 			<div class="ka-footer-meta">
 				<span>资料核对 2026.10</span>
-				<a href="/resources/">资料来源</a>
+				<a href={`${base}resources/`}>资料来源</a>
 				<a href="#ka-hero-title">回到顶部 ↑</a>
 			</div>
 		</footer>

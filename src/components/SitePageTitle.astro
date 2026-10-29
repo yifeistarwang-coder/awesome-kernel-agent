@@ -1,0 +1,9 @@
+---
+import DefaultPageTitle from '@astrojs/starlight/components/PageTitle.astro';
+
+// 首页用 splash 模板但没有 hero frontmatter，Starlight 会走 PageTitle 分支，
+// 在隐藏的首屏面板里再渲染一个 <h1>，与 landing 自己的标题重复。首页跳过它。
+const isSplash = Astro.locals.starlightRoute.entry.data.template === 'splash';
+---
+
+{!isSplash && <DefaultPageTitle />}
