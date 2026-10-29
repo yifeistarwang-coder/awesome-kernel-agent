@@ -63,7 +63,17 @@ const chapters: Chapter[] = [
 		href: '/guide/skills/',
 		tag: '进阶',
 	},
+	{
+		index: '07',
+		en: 'BUILD',
+		title: '自建 harness',
+		desc: '把任务规格、工具、循环、验证、记录与预算组装成最小系统，并处理成本、沙箱与 reward hacking。',
+		href: '/guide/beyond/',
+		tag: '进阶',
+	},
 ];
+
+const base = import.meta.env.BASE_URL;
 
 const appendices: Appendix[] = [
 	{ label: '术语表', en: 'GLOSSARY', href: '/glossary/' },
@@ -76,7 +86,7 @@ const appendices: Appendix[] = [
 	<div class="ka-shell">
 		<div class="ka-section-head" data-reveal>
 			<p class="ka-eyebrow">Chapters</p>
-			<h2 id="ka-chapters-title" class="ka-section-title">六章，沿着同一条主线</h2>
+			<h2 id="ka-chapters-title" class="ka-section-title">七章，沿着同一条主线</h2>
 			<p class="ka-section-desc">
 				从理解 Agent，到让 Agent 自己写对 kernel。每一章都给出可验证的概念、案例与练习，而不是只列结论。
 			</p>
@@ -87,7 +97,7 @@ const appendices: Appendix[] = [
 				chapters.map((chapter, index) => (
 					<a
 						class="ka-chapter"
-						href={chapter.href}
+						href={`${base}${chapter.href.replace(/^\//, '')}`}
 						data-reveal
 						style={`--reveal-delay: ${index * 55}ms`}
 					>
@@ -134,7 +144,7 @@ const appendices: Appendix[] = [
 			<span class="ka-appendix-label">附录 / APPENDIX</span>
 			{
 				appendices.map((item) => (
-					<a class="ka-appendix-link" href={item.href}>
+					<a class="ka-appendix-link" href={`${base}${item.href.replace(/^\//, '')}`}>
 						{item.label}
 						<span>{item.en}</span>
 					</a>
