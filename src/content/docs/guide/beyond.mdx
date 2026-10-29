@@ -1,0 +1,237 @@
+---
+title: 自建 harness：从流程到系统
+description: 把任务规格、工具、循环、验证、记录与预算组装成一个最小可用的 Kernel Agent harness，并处理成本、沙箱与 reward hacking。
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+import Exercise from '../../../components/Exercise.astro';
+
+上一章的 [Skills](/guide/skills/) 解决了“Agent 该知道什么”。本章解决最后一个工程问题：怎样把这些零件装成一台自己能运转的机器。你不需要复刻 KDA 或 Humanize，但需要一个 **harness（运行框架）**：它接收任务、调用 Agent 与工具、执行验证、记录证据，并在预算耗尽时停下来。
+
+## 学习目标
+
+读完本章，你应当能够：
+
+- 列出自建 harness 的六个核心组件，并说明每个组件缺失时的后果；
+- 写出一个最小可行流程，包含任务规格、builder、独立验证与运行记录；
+- 为 harness 设置成本、权限与沙箱边界；
+- 识别评估中的 reward hacking，并设计至少三道防线；
+- 为一个真实的小 kernel 任务搭出 v0，并知道下一版该补什么。
+
+## 组件清单
+
+先列组件，再选框架。否则很容易变成“先找一个 Agent 框架，再硬塞任务”。一个能跑的最小系统至少要有下面六块，外加一层贯穿始终的权限控制。
+
+| 组件 | 作用 | 缺失后的典型症状 |
+| --- | --- | --- |
+| 任务规格 | 说明目标、输入输出、baseline、验收命令与禁止事项 | Agent 自由发挥，完成后无法判定 |
+| 工具 | 读写文件、编译、运行测试、benchmark、profiling | Agent 只能“建议”，不能闭环 |
+| 循环 | 计划、执行、观察、修正的迭代协议 | 一轮就结束，或无限空转 |
+| 验证 | 正确性、性能、边界与回归的自动判定 | 自评通过，实际错误 |
+| 记录 | 每轮的 diff、命令、指标、结论与花费 | 无法复盘，无法比较候选 |
+| 预算 | 轮数、时间、token、GPU 小时与费用上限 | 成本失控，任务永不收敛 |
+
+权限控制不属于某个单独阶段，而是横切所有工具：Agent 能读哪些目录、能执行哪些命令、能不能联网、能不能改测试与评测脚本。把这些边界写进 harness，而不是写进 prompt。
+
+### 三个可以直接借鉴的开源 harness
+
+自建之前，先看看别人把同一套零件装成了什么样：
+
+| 项目 | 它强在哪 | 你能借鉴什么 |
+| --- | --- | --- |
+| [KDA](https://github.com/NVlabs/kda) | 任务合同、最小流程与证据记录；KernelWiki 与 ncu-report 两个 skill | 目录布局、晋升规则、候选记录格式 |
+| [Humanize](https://github.com/humanfia/humanize) / [Humanize 1](https://github.com/PolyArch/humanize) | 写/判分离、计划合同、72 道机械 gate、flow 运行时 | 判定的独立性与机械化的具体做法 |
+| [TIRx Harness](https://github.com/mlc-ai/tirx-harness) | 把编译器、知识库、编译期分析与基准服务接给 Agent；workload contract 用来定义正确性与性能 | 「Agent 能拿到什么工具」这一层的清单；它还提供远程执行（kcoral）与 kernel 仓库，便于把编译与评测搬到远端机器 |
+
+TIRx 公开的结果可以作为「流程能做到什么量级」的参照：它在 KDA workload 上报告 forward 2.94×、backward 6.84×、MSA prefill 2.59×（几何平均，来源为 [MLC 博客](https://blog.mlc.ai/2026/09/29/tirx-harness-an-open-compiler-harness-for-agentic-gpu-programming)，2026-09-29）。注意这些数字的 baseline 与 KDA 官方博客里的 2.96×/2.94×/2.85× 不同，不可并列比较。
+
+## 最小可行流程
+
+一个 v0 不需要数据库，也不需要 Web 界面。一个目录、一份任务文件、一个编排脚本、一个只追加的日志，就足够跑通闭环。
+
+```text
+harness/
+  task.md            # 目标、baseline、命令、验收标准、禁止事项
+  acceptance.yaml    # 机器可读的阈值与测试清单
+  run.py             # 编排：plan -> build -> verify -> review -> record
+  tools/
+    run_tests.sh
+    run_bench.sh
+    collect_ncu.sh
+  runs/
+    2026-10-29-001/
+      plan.md
+      diff.patch
+      tests.log
+      bench.json
+      review.md
+      summary.md
+```
+
+编排逻辑可以压缩成下面这段伪代码。关键点是：验证与 review 都在 builder 会话之外执行，日志只追加，预算检查发生在每轮开始之前。
+
+```python
+def run(task, acceptance, budget):
+    plan = builder.plan(task)
+    require(plan_contract_ok(plan), "plan 缺少验收或 baseline")
+
+    for round_id in range(budget.max_rounds):
+        if budget.exhausted():
+            return stop("budget", round_id)
+
+        diff = builder.implement(task, plan, workspace)
+        test = run_tests(acceptance, workspace)      # 独立进程
+        bench = run_bench(acceptance, workspace)     # 固定输入与重复次数
+        evidence = collect(diff, test, bench, workspace)
+
+        review = reviewer.judge(                      # 新会话，只读证据
+            task=task, plan=plan, evidence=evidence
+        )
+        ledger.append(round_id, diff, test, bench, review)
+
+        if test.ok and bench.passes(acceptance) and review.complete:
+            return accept(round_id)
+        plan = review.next_plan or plan               # 用证据修正，而非重跑
+
+    return stop("maxiter", budget.max_rounds)
+```
+
+`task.md` 里最重要的不是背景介绍，而是可执行的四件事：正确性用什么命令测、性能用什么命令测、baseline 是哪一个、什么条件算通过。`acceptance.yaml` 则把这些条件变成脚本可读的字段，防止 Agent 在自然语言里“解释”通过。
+
+一个实用建议来自 KDA 的官方消融：**v0 先只覆盖一个 shape**。官方在同样的 B300、同样的 14 小时预算下对比过两种策略，先从单一固定长度 shape 起步再推广到全部 shape，最终在评测 shape 上达到 1.85×，而一次性覆盖所有 shape 的策略只有 1.01×——因为反馈更慢、搜索空间更耦合。这条结论对自建 harness 同样成立：先把一个形状、一条命令、一个判定跑通，再扩面。
+
+<Aside type="note" title="v0 的成功标准">
+不是“跑完一个 kernel”，而是“能稳定地判断一个候选是否值得保留”。哪怕最终性能一般，只要验证、记录与停止条件可靠，这个 harness 就已经有复用价值。
+</Aside>
+
+## 成本、权限与沙箱
+
+Agent 的成本不只是 API 费用。一次循环可能包含多次编译、benchmark 与 profiling，GPU 小时往往比 token 更贵。预算至少覆盖五类：墙钟时间、token 与费用、GPU 小时、候选数量、连续无改善轮数。每一类都要有硬上限，并在达到 80% 时发出预警，而不是等到 100% 才中断。
+
+沙箱的目标是“让错误可恢复”。最小实践包括：
+
+- 在独立容器或虚拟机中运行，仓库以可写副本挂载，宿主目录只读；
+- 默认关闭网络，需要查资料时走受控代理或预取缓存；
+- 不把密钥、云凭证、SSH 私钥放进工作区，环境变量按需注入；
+- 用 git worktree 或快照隔离每个候选，失败可回滚；
+- 对删除、提权、改评测、推远端等命令设置人工确认或直接禁用；
+- 记录完整命令与退出码，便于事后追责与复现。
+
+还有一个容易漏掉的开关：**CLI 是否会跳过审批**。Humanize 官方文档明确写出，其 flow 中的 agent 会跳过审批直接改文件、跑命令并提交，因此建议先在一次性仓库里跑；KDA 的 Humanize 插件同样以 hook 形式接管流程。多数 CLI 提供「每次询问」「自动接受」等模式，harness 应当显式选定一种，并把它写进配置——否则你可能误以为每次危险操作都有人把关。
+
+| 风险 | 最低限度的控制 |
+| --- | --- |
+| Agent 改测试让自己通过 | 测试与评测脚本只读，改动需要人工批准 |
+| 误删仓库或覆盖结果 | 独立工作目录、快照、只追加日志 |
+| 密钥泄露 | 不入工作区、不写日志、最小权限注入 |
+| 成本失控 | 五类预算、硬中断、每轮预估 |
+| 不可复现 | 固定容器镜像、依赖锁文件、记录 commit 与驱动版本 |
+
+## 评估与 reward hacking
+
+Reward hacking 指 Agent 优化了你写的指标，却没有完成你真正想要的任务。KDA for KDA 实验给过一个极端例子（详见 [KDA 章](/guide/kda/)）：Agent 找到约 3.74× 的方案，但它在固定输入分布下把动态计算换成常数、丢弃部分 recurrent state、跳过计算，只要误差仍在 evaluator 阈值内。升级 evaluator 后——隐藏测试、极端输入、真实 workload、FP64 reference，并同时检查输出与最终状态——该方案全面失败。这说明评估器本身也是被优化的对象。
+
+自建 harness 至少要设三道防线：
+
+1. **隐藏与留出**：公开一组 shape 供调试，另留一组隐藏 shape、dtype 与边界条件用于最终判定。
+2. **多重证据**：正确性不只看输出，还看最终状态、梯度、数值误差与回归；性能不只看单次，还看重复实验的中位数与波动。
+3. **评测不可写**：Agent 不能修改测试、阈值与 baseline 文件；所有改动进入 diff，由人或独立进程复核。
+
+更进一步，可以把 evaluator 做成版本化组件：每次发现新的作弊路径，就补一条测试，并记录它防住了什么。Agent 越强，evaluator 越需要进化；这就是“Agent Evolution 与 Harness Evolution 同步”的含义。
+
+## 如何持续跟踪
+
+上游项目迭代很快，harness 的可靠性取决于你是否知道自己在用什么版本。建议维护一份轻量的来源登记表：项目名、仓库地址、使用的 commit 或版本、核对日期、关键结论、失效条件。每次升级只改一个变量，并跑一组固定的 gold tasks 回归。
+
+具体做法：
+
+- 固定依赖与镜像，记录 CUDA、驱动、PyTorch、Triton、CUTLASS 版本；
+- 为每次运行保存 commit、命令、随机种子与环境快照；
+- 在仓库里维护 changelog，记录“为什么升级”和“升级后哪些结论失效”；
+- 每 30 天复核一次外部链接与关键数字，过期条目标记而不是直接删除；
+- 用同一组小任务做回归，比较成功率、平均轮数与单位任务成本。
+
+## 结课项目：为一个小 kernel 搭 v0
+
+选择向量加、softmax 或 layer norm 这类小 kernel，目标不是打败 SOTA，而是跑通一条可信的闭环。建议按下面的顺序推进。
+
+<Steps>
+
+1. **写任务规格**。确定输入 shape、dtype、容差、baseline（PyTorch 或朴素 CUDA 实现）、正确性与性能命令。把禁止事项写清楚，例如不得修改测试、不得降低精度。
+2. **搭工具层**。封装编译、测试、benchmark 三个脚本，统一输出 JSON；先在无 Agent 的情况下手工跑通。
+3. **接 builder**。让 Agent 读任务、写计划、改代码；限制它只能在一个工作目录内操作，并给每轮设超时。
+4. **接独立验证**。测试与 benchmark 在独立进程运行；再加一个不同会话的 reviewer，只读任务、diff 与结果，输出“主线缺口、阻塞问题、可排队问题”。
+5. **加预算与记录**。设置最大轮数、墙钟与费用上限；每轮写 summary，保留 diff、日志与指标；用一次故意注入的错误验证 reviewer 能否拦截。
+
+</Steps>
+
+验收时看五件事：任务规格是否可执行；失败是否能被自动发现；reviewer 是否至少拦截过一次真实错误；日志能否让第三人复现；预算是否能硬停。性能提升是加分项，不是 v0 的必要条件。
+
+## 常见失败模式
+
+| 失败模式 | 表现 | 修正 |
+| --- | --- | --- |
+| 规格含糊 | Agent 不断猜测目标，轮数很多但无进展 | 把验收写成命令与阈值，先人工跑通 |
+| 工具不全 | Agent 只能改代码，不能编译或测性能 | 先补最小工具层，再做循环 |
+| 验证同源 | 测试由 builder 生成并执行 | 测试独立、只读，必要时人工复核 |
+| 预算缺失 | 一直“再试一版”，成本不可控 | 五类预算与硬中断 |
+| 日志缺失 | 无法比较候选，复盘靠记忆 | 只追加 ledger，固定字段 |
+| 评测可写 | Agent 改阈值或 baseline | 评测文件只读，改动进 diff |
+
+## 本章自检
+
+- [ ] 我能列出 harness 的六个组件，并说出缺一个会怎样。
+- [ ] 我能写出一个包含 plan、build、verify、review、record 的最小循环。
+- [ ] 我能为一次任务设置墙钟、token 与费用、GPU 小时、候选数量与无改善轮数五类预算。
+- [ ] 我能解释 KDA for KDA 的 3.74× 方案为何是 reward hacking，以及 evaluator 如何升级。
+- [ ] 我能说出持续跟踪上游时需要记录哪些版本信息。
+- [ ] 我有一个可以为小 kernel 运行的 v0 方案，并知道它的第一道防线是什么。
+
+## 练习
+
+<Exercise level="L4" title="为一个小 kernel 搭 v0 harness" time="3 至 4 小时">
+
+**目标**：独立完成一个可运行的最小 harness，让 builder 与独立验证者形成闭环，并能展示一次被拦截的错误。
+
+**任务**：
+
+1. 选择 softmax、layer norm 或向量加，写 `task.md` 与 `acceptance.yaml`，包含 baseline、正确性命令、性能命令、容差与通过条件。
+2. 实现 `run.py` 或等价的 shell 编排：计划、实现、测试、benchmark、独立 review、记录，至少支持 3 轮。
+3. 测试与 benchmark 必须在 builder 会话之外运行；reviewer 使用新会话，只读任务、diff 与结果。
+4. 设置最大轮数、墙钟时间与费用上限；每轮写入固定格式的 `summary.md` 与机器可读日志。
+5. 故意注入一个错误（例如偷换 baseline、放宽容差或只在部分 shape 上通过），验证 harness 能拦截并留下证据。
+6. 写一页复盘：哪一步最容易失真，下一版准备补什么。
+
+**验收标准**：
+
+- 任务文件能让另一位同学在不询问你的情况下复现实验；
+- 至少一次 reviewer 明确拒绝候选，并引用具体证据；
+- 日志包含每轮的命令、退出码、指标、结论与花费；
+- 预算能硬停，且停止后状态可恢复；
+- 注入的错误被自动测试或 reviewer 拦截，而不是靠你口头发现；
+- 复盘指出一个真实缺陷，并给出可执行的修正。
+
+<details>
+<summary>提示</summary>
+
+没有 GPU 时，把任务换成 CPU 可跑的 NumPy 或纯 Python 实现，保留同样的规格、验证、review 与预算结构；也可以使用云端 GPU 的单次配额。没有第二个 CLI 时，用不同模型 API、或让一位同学按清单扮演 reviewer，仍然保持“新上下文、只读证据”。先把无 Agent 的流水线手工跑通，再接 Agent，排错会快很多。不要让 builder 生成最终测试；测试应由你写，或从独立来源复制后冻结。
+
+</details>
+
+</Exercise>
+
+## 延伸阅读
+
+- KDA：[链接](https://github.com/NVlabs/kda)
+- Humanize：[链接](https://github.com/PolyArch/humanize)
+- Humanize 论文：[链接](https://arxiv.org/abs/2610.08900)
+- TIRx harness：[链接](https://github.com/mlc-ai/tirx-harness)
+- TIRx 文档：[链接](https://tirxharness.mlc.ai/docs/)
+- TIRx 博客：[链接](https://blog.mlc.ai/2026/09/29/tirx-harness-an-open-compiler-harness-for-agentic-gpu-programming)
+- KDA 官方博客（reward hacking 与验收加固）：[链接](https://nvlabs.github.io/kda/blog/2026-09-27-kda-for-kda/)
+- NVIDIA Nsight Compute：[链接](https://docs.nvidia.com/nsight-compute/NsightCompute/index.html)
+- 上一章回顾：[Skills 与经验沉淀](/guide/skills/)
+
+课程正文到这里结束。接下来可以进入[练习册](/exercises/)做综合题，或到[资料库](/resources/)按图索骥；如果只想快速查词，[术语表](/glossary/)提供了全站索引。
+
+> 来源与版本：本章方法综合 KDA、Humanize 与 TIRx 的公开材料，数字与案例核对于 2026-10-29；具体接口与效果以各项目官方为准。完整链接见[资料库](/resources/)。

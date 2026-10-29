@@ -1,0 +1,54 @@
+---
+const audience = [
+	'刚开始接触 Kernel Agent 的研究生与工程师。',
+	'会 Python、了解深度学习基础，但 CUDA 与 ncu 经验有限。',
+	'想弄清 KDA、Humanize 到底怎么运转，而不只是看演示。',
+	'手头没有 GPU，也希望先理解流程与验证方法。',
+];
+
+const workflow = [
+	'按章节顺序读；每章先看导语、学习目标与自检。',
+	'把练习当成交付物：按验收标准检查输出，而不是只看完答案。',
+	'遇到数字与结论，回到资料库核对来源与日期。',
+	'把流程改写成自己的 checklist，再替换成你的模型与工具。',
+];
+---
+
+<section class="ka-section" id="audience" aria-labelledby="ka-audience-title">
+	<div class="ka-shell">
+		<div class="ka-section-head" data-reveal>
+			<p class="ka-eyebrow">How to use</p>
+			<h2 id="ka-audience-title" class="ka-section-title">适合谁，怎么用</h2>
+			<p class="ka-section-desc">
+				这不是一份 API 速查，而是一本可以按章节执行的工作手册。读完之后，你应该能判断一个 Agent 工作流是否可信，并动手做一个最小版本。
+			</p>
+		</div>
+
+		<div class="ka-audience-grid">
+			<article class="ka-panel" data-reveal>
+				<div class="ka-panel-head">
+					<h3 class="ka-panel-title">适合谁</h3>
+					<span class="ka-panel-en">WHO IT IS FOR</span>
+				</div>
+				<ul class="ka-check-list">
+					{audience.map((item) => <li>{item}</li>)}
+				</ul>
+			</article>
+
+			<article class="ka-panel" data-reveal style="--reveal-delay: 70ms">
+				<div class="ka-panel-head">
+					<h3 class="ka-panel-title">怎么用</h3>
+					<span class="ka-panel-en">HOW TO READ</span>
+				</div>
+				<ol class="ka-how-list">
+					{workflow.map((item) => <li><span>{item}</span></li>)}
+				</ol>
+			</article>
+		</div>
+
+		<div class="ka-principle" data-reveal style="--reveal-delay: 120ms">
+			<span class="ka-principle-mark" aria-hidden="true">RULE</span>
+			<p>先能验证，再谈优化；先写对，再写快。</p>
+		</div>
+	</div>
+</section>

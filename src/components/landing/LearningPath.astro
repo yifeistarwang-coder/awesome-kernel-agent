@@ -1,0 +1,111 @@
+---
+interface PhaseLink {
+	label: string;
+	href: string;
+}
+
+interface Phase {
+	index: string;
+	en: string;
+	title: string;
+	desc: string;
+	links: PhaseLink[];
+}
+
+const phases: Phase[] = [
+	{
+		index: '00',
+		en: 'START',
+		title: '导读',
+		desc: '先看全景：Kernel Agent 解决什么问题，KDA、Humanize 与 skills 各占哪一段；顺手准备好工具与预算。',
+		links: [{ label: '导读与环境', href: '/guide/intro/' }],
+	},
+	{
+		index: '01',
+		en: 'FOUNDATION',
+		title: '基础',
+		desc: '补两门语言：Agent 的循环与 harness，GPU 的执行模型与性能分析。没有 GPU 也能先读懂。',
+		links: [
+			{ label: 'Agent 与 harness', href: '/guide/agent-harness/' },
+			{ label: 'GPU kernel 与性能', href: '/guide/gpu-kernel/' },
+		],
+	},
+	{
+		index: '02',
+		en: 'CASES',
+		title: '案例',
+		desc: '读 KDA 的 Coder/Verifier 分工，再看 Humanize 如何用新上下文和机械 gates 做判断。',
+		links: [
+			{ label: 'KDA：让 Agent 写 kernel', href: '/guide/kda/' },
+			{ label: 'Humanize：判断工程', href: '/guide/humanize/' },
+		],
+	},
+	{
+		index: '03',
+		en: 'ADVANCED',
+		title: '进阶',
+		desc: '把专家经验写成可检索的 skills，再搭一个最小可行 harness，让流程可以重复，而不是靠运气。',
+		links: [
+			{ label: 'Skills 与经验沉淀', href: '/guide/skills/' },
+			{ label: '自建 harness', href: '/guide/beyond/' },
+		],
+	},
+];
+---
+
+<section class="ka-section" id="path" aria-labelledby="ka-path-title">
+	<div class="ka-shell">
+		<div class="ka-section-head" data-reveal>
+			<p class="ka-eyebrow">Learning path</p>
+			<h2 id="ka-path-title" class="ka-section-title">一条从全景到自建的路线</h2>
+			<p class="ka-section-desc">
+				先建立地图，再补基础语言，然后读两个真实案例，最后把经验沉淀成自己的 harness。四段路可以顺序走，也可以按需回看。
+			</p>
+		</div>
+
+		<div class="ka-path-grid">
+			{
+				phases.map((phase, index) => (
+					<article
+						class="ka-path-step"
+						data-reveal
+						style={`--reveal-delay: ${index * 70}ms`}
+					>
+						<span class="ka-path-node" aria-hidden="true">{phase.index}</span>
+						<div class="ka-path-card">
+							<p class="ka-path-phase">
+								PHASE {phase.index} / {phase.en}
+							</p>
+							<h3 class="ka-path-title">
+								{phase.title}
+								<span>{phase.en}</span>
+							</h3>
+							<p class="ka-path-desc">{phase.desc}</p>
+							<div class="ka-path-links">
+								{phase.links.map((link) => (
+									<a class="ka-path-link" href={link.href}>
+										{link.label}
+										<svg
+											viewBox="0 0 16 16"
+											width="11"
+											height="11"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="1.7"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											aria-hidden="true"
+										>
+											<path d="M3 8h9" />
+											<path d="m8.5 4 4 4-4 4" />
+										</svg>
+									</a>
+								))}
+							</div>
+						</div>
+					</article>
+				))
+			}
+		</div>
+	</div>
+</section>

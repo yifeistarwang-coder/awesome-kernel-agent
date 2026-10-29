@@ -1,0 +1,150 @@
+---
+import Figure from '../Figure.astro';
+---
+
+<Figure caption="Flame Chase 的会话模型：两个 agent 交替，每轮开新 session；对话不共享，唯一的共享状态是工作目录。">
+	<div class="ka-diagram ka-flame">
+		<svg
+			viewBox="0 0 960 560"
+			role="img"
+			aria-labelledby="ka-flame-title ka-flame-desc"
+			xmlns="http://www.w3.org/2000/svg"
+		>
+			<title id="ka-flame-title">Flame Chase 会话隔离</title>
+			<desc id="ka-flame-desc">
+				Agent A 第一轮写入工作目录，Agent B 在全新的 session 中复核；随后 A 与 B 各自开启新 session 继续交替。两侧对话互不可见，工作目录是唯一共享状态。
+			</desc>
+
+			<defs>
+				<pattern id="ka-flame-grid" width="28" height="28" patternUnits="userSpaceOnUse">
+					<path d="M28 0H0V28" fill="none" stroke="var(--ka-dg-grid)" stroke-width="1"></path>
+				</pattern>
+				<marker
+					id="ka-flame-arrow"
+					viewBox="0 0 8 8"
+					refX="6.6"
+					refY="4"
+					markerWidth="7"
+					markerHeight="7"
+					orient="auto-start-reverse"
+				>
+					<path d="M0 0 8 4 0 8Z" fill="var(--ka-dg-line-strong)"></path>
+				</marker>
+			</defs>
+
+			<rect width="960" height="560" fill="url(#ka-flame-grid)" opacity="0.55"></rect>
+
+			<text x="28" y="34" class="dg-mono dg-muted" font-size="12.5">
+				FLAME CHASE · 会话隔离 / 交替接力
+			</text>
+			<text x="932" y="34" text-anchor="end" class="dg-mono dg-amber" font-size="12.5">
+				每轮都是新 session
+			</text>
+
+			<text x="56" y="74" class="dg-mono dg-teal" font-size="12.5">AGENT A · WRITE</text>
+			<text x="904" y="74" text-anchor="end" class="dg-mono dg-amber" font-size="12.5">AGENT B · REVIEW</text>
+			<text x="480" y="74" text-anchor="middle" class="dg-mono dg-muted" font-size="11">CONTEXT WALL · 会话隔离</text>
+
+			<!-- 语境隔离墙 -->
+			<path d="M480 86V360" fill="none" stroke="var(--ka-dg-amber)" stroke-width="1" stroke-dasharray="4 7" opacity="0.32" aria-hidden="true"></path>
+
+			<!-- A1 -->
+			<g>
+				<rect x="56" y="100" width="326" height="108" rx="13" class="dg-surface" stroke="var(--ka-dg-teal)" stroke-opacity="0.32"></rect>
+				<text x="76" y="126" class="dg-mono dg-teal" font-size="11.5">ROUND 01 / WRITE</text>
+				<rect x="289" y="110" width="88" height="20" rx="10" fill="var(--ka-dg-teal-soft)" stroke="var(--ka-dg-teal)" stroke-opacity="0.3"></rect>
+				<text x="333" y="124" text-anchor="middle" class="dg-mono dg-teal" font-size="11">新 session</text>
+				<text x="76" y="160" class="dg-title dg-text" font-size="19">Agent A · session 01</text>
+				<text x="76" y="184" class="dg-muted" font-size="14">读 workspace，写下一版 kernel</text>
+				<text x="76" y="202" class="dg-muted" font-size="12.5">新上下文，不继承上一轮对话</text>
+			</g>
+
+			<!-- B1 -->
+			<g>
+				<rect x="578" y="100" width="326" height="108" rx="13" class="dg-surface" stroke="var(--ka-dg-amber)" stroke-opacity="0.34"></rect>
+				<text x="598" y="126" class="dg-mono dg-amber" font-size="11.5">ROUND 01 / REVIEW</text>
+				<rect x="811" y="110" width="88" height="20" rx="10" fill="var(--ka-dg-amber-soft)" stroke="var(--ka-dg-amber)" stroke-opacity="0.32"></rect>
+				<text x="855" y="124" text-anchor="middle" class="dg-mono dg-amber" font-size="11">新 session</text>
+				<text x="598" y="160" class="dg-title dg-text" font-size="19">Agent B · session 01</text>
+				<text x="598" y="184" class="dg-muted" font-size="14">复核证据，指出下一步</text>
+				<text x="598" y="202" class="dg-muted" font-size="12.5">只读文件与运行结果</text>
+			</g>
+
+			<!-- A2 -->
+			<g>
+				<rect x="56" y="250" width="326" height="108" rx="13" class="dg-surface" stroke="var(--ka-dg-teal)" stroke-opacity="0.32"></rect>
+				<text x="76" y="276" class="dg-mono dg-teal" font-size="11.5">ROUND 02 / WRITE</text>
+				<rect x="289" y="260" width="88" height="20" rx="10" fill="var(--ka-dg-teal-soft)" stroke="var(--ka-dg-teal)" stroke-opacity="0.3"></rect>
+				<text x="333" y="274" text-anchor="middle" class="dg-mono dg-teal" font-size="11">新 session</text>
+				<text x="76" y="310" class="dg-title dg-text" font-size="19">Agent A · session 02</text>
+				<text x="76" y="334" class="dg-muted" font-size="14">继续改 kernel，依据文件恢复状态</text>
+				<text x="76" y="352" class="dg-muted" font-size="12.5">看不到 B 的对话</text>
+			</g>
+
+			<!-- B2 -->
+			<g>
+				<rect x="578" y="250" width="326" height="108" rx="13" class="dg-surface" stroke="var(--ka-dg-amber)" stroke-opacity="0.34"></rect>
+				<text x="598" y="276" class="dg-mono dg-amber" font-size="11.5">ROUND 02 / REVIEW</text>
+				<rect x="811" y="260" width="88" height="20" rx="10" fill="var(--ka-dg-amber-soft)" stroke="var(--ka-dg-amber)" stroke-opacity="0.32"></rect>
+				<text x="855" y="274" text-anchor="middle" class="dg-mono dg-amber" font-size="11">新 session</text>
+				<text x="598" y="310" class="dg-title dg-text" font-size="19">Agent B · session 02</text>
+				<text x="598" y="334" class="dg-muted" font-size="14">重新读产物，决定下一步</text>
+				<text x="598" y="352" class="dg-muted" font-size="12.5">不引用上一轮记忆</text>
+			</g>
+
+			<!-- 交接 -->
+			<g aria-hidden="true" fill="none" stroke="var(--ka-dg-line-strong)" stroke-width="1.3">
+				<path d="M382 154H574" marker-end="url(#ka-flame-arrow)"></path>
+				<path d="M741 208V228H219V246" marker-end="url(#ka-flame-arrow)"></path>
+				<path d="M382 304H574" marker-end="url(#ka-flame-arrow)"></path>
+			</g>
+			<rect x="412" y="132" width="136" height="16" rx="4" fill="var(--ka-dg-bg)" aria-hidden="true"></rect>
+			<rect x="444" y="208" width="72" height="16" rx="4" fill="var(--ka-dg-bg)" aria-hidden="true"></rect>
+			<rect x="412" y="282" width="136" height="16" rx="4" fill="var(--ka-dg-bg)" aria-hidden="true"></rect>
+			<text x="480" y="144" text-anchor="middle" class="dg-mono dg-muted" font-size="11.5">交接 01 · 只经文件</text>
+			<text x="480" y="220" text-anchor="middle" class="dg-mono dg-muted" font-size="11.5">交接 02</text>
+			<text x="480" y="294" text-anchor="middle" class="dg-mono dg-muted" font-size="11.5">交接 03 · 只经文件</text>
+
+			<!-- 隔离提示 -->
+			<g>
+				<rect x="372" y="376" width="216" height="24" rx="12" fill="var(--ka-dg-bg)" stroke="var(--ka-dg-line)"></rect>
+				<text x="480" y="392" text-anchor="middle" class="dg-mono dg-muted" font-size="11">
+					新上下文 · 没有共享对话
+				</text>
+			</g>
+
+			<!-- 读写共享目录 -->
+			<g aria-hidden="true">
+				<path d="M219 358V412" fill="none" stroke="var(--ka-dg-teal)" stroke-width="1" stroke-dasharray="3 5" opacity="0.6"></path>
+				<path d="M741 358V412" fill="none" stroke="var(--ka-dg-amber)" stroke-width="1" stroke-dasharray="3 5" opacity="0.6"></path>
+				<text x="228" y="390" class="dg-mono dg-teal" font-size="11">读 / 写</text>
+				<text x="750" y="390" class="dg-mono dg-amber" font-size="11">读 / 写</text>
+			</g>
+
+			<!-- 共享工作目录 -->
+			<g>
+				<rect x="56" y="412" width="848" height="104" rx="14" fill="var(--ka-dg-surface-2)" stroke="var(--ka-dg-teal)" stroke-opacity="0.45" stroke-width="1.2"></rect>
+				<text x="80" y="438" class="dg-mono dg-teal" font-size="11.5">SHARED WORKSPACE / 唯一共享状态</text>
+				<text x="80" y="468" class="dg-mono dg-title dg-text" font-size="23">workspace/</text>
+				<text x="80" y="492" class="dg-muted" font-size="12.5">对话不共享 · 运行记录落盘 · 下一轮重新读取</text>
+
+				<g>
+					<rect x="392" y="444" width="126" height="32" rx="7" fill="var(--ka-dg-surface)" stroke="var(--ka-dg-line)"></rect>
+					<text x="455" y="464" text-anchor="middle" class="dg-mono dg-text" font-size="12.5">kernel.cu</text>
+				</g>
+				<g>
+					<rect x="530" y="444" width="108" height="32" rx="7" fill="var(--ka-dg-surface)" stroke="var(--ka-dg-line)"></rect>
+					<text x="584" y="464" text-anchor="middle" class="dg-mono dg-text" font-size="12.5">plan.md</text>
+				</g>
+				<g>
+					<rect x="650" y="444" width="118" height="32" rx="7" fill="var(--ka-dg-surface)" stroke="var(--ka-dg-line)"></rect>
+					<text x="709" y="464" text-anchor="middle" class="dg-mono dg-text" font-size="12.5">bench.log</text>
+				</g>
+				<g>
+					<rect x="780" y="444" width="100" height="32" rx="7" fill="var(--ka-dg-surface)" stroke="var(--ka-dg-line)"></rect>
+					<text x="830" y="464" text-anchor="middle" class="dg-mono dg-text" font-size="12.5">ncu/</text>
+				</g>
+			</g>
+		</svg>
+	</div>
+</Figure>

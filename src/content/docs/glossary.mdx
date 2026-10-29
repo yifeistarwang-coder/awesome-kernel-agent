@@ -1,0 +1,114 @@
+---
+title: 术语表：Kernel Agent 词汇速查
+description: 按主题整理 Kernel Agent 领域的核心术语，包含英文对照、简明解释与相关章节链接。
+---
+
+本页按主题收录 Kernel Agent 学习中最常遇到的术语。英文列保留社区常用写法，解释只给理解所需的最小信息；需要展开的内容请点进相关章节。术语的适用条件随上游项目演进，遇到版本相关的能力时以官方文档为准。
+
+## Agent 与流程
+
+| 术语 | 英文 | 解释 | 相关章节链接 |
+| --- | --- | --- | --- |
+| 智能体 | Agent | 能读取任务、调用工具、根据反馈迭代的 LLM 程序，不等同于单次问答。 | [Agent 与 harness](/guide/agent-harness/) |
+| 运行框架 | harness | 包住 Agent 的任务规格、工具、循环、验证、记录与预算系统。 | [自建 harness](/guide/beyond/) |
+| 上下文 | context | 模型一次调用中可见的 token 集合，包括指令、对话、文件与工具输出。 | [Agent 与 harness](/guide/agent-harness/) |
+| 会话 | session | 一段连续的交互及其状态；新会话默认不继承旧会话的对话。 | [Humanize](/guide/humanize/) |
+| 计划 | plan | 对目标、步骤、风险与验证方式的书面安排，是可 review 的中间产物。 | [Agent 与 harness](/guide/agent-harness/) |
+| 草稿 | draft | 实现前的低成本探索文档：baseline、风险、候选方向与验证命令，允许被推翻。 | [Agent 与 harness](/guide/agent-harness/) |
+| 验收标准 | acceptance criteria | 任务开始前约定的、可检验的通过条件，通常包含命令、阈值与容差。 | [Agent 与 harness](/guide/agent-harness/) |
+| 基线 | baseline | 用于对比的参照实现；必须固定，不能在迭代中被悄悄替换。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| 加速比 | speedup | 基线耗时除以候选耗时，或吞吐之比；报告时必须说明基线与测量条件。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| 编码者 | coder | KDA 中负责读代码、改 kernel、编译与测试的角色，默认由 Claude 承担。 | [KDA](/guide/kda/) |
+| 构建者 | builder | 循环中负责产出计划与代码的一方，Humanize 默认使用 Claude Code。 | [Humanize](/guide/humanize/) |
+| 审查者 | reviewer | 在独立上下文中判断证据是否支持完成的一方；只有它可以宣布完成。 | [Humanize](/guide/humanize/) |
+| 验证者 | verifier | 对照验收标准复核证据的角色；在 KDA 中通常由 Codex 承担。 | [KDA](/guide/kda/) |
+| 计划合同 | plan contract | 开工前用两道理解度选择题确认人已看懂计划机制与架构的协议。 | [Humanize](/guide/humanize/) |
+| 判断工程 | judgement engineering | 设计谁来判断、看什么证据、何时停止的工程方法，而非改 prompt。 | [Humanize](/guide/humanize/) |
+| 外部判定 | oracle | 独立于 builder 的判定来源，如人工、隐藏测试或更强参考实现。 | [Humanize](/guide/humanize/) |
+| 复盘 | postmortem | 对一次失败或成功循环的结构化回顾，记录原因、证据与改法。 | [Humanize](/guide/humanize/) |
+| 消融 | ablation | 逐一移除组件以测量其贡献的实验方法，如 RLCR、KernelWiki、profiling skill 的叠加。 | [Humanize](/guide/humanize/) |
+| 验收加固 | acceptance gauntlet | 多层强制验收：隐藏输入、逐元素容差、压力探针、真实 trace，用来堵住 reward hacking。 | [KDA](/guide/kda/) |
+
+## GPU 与性能
+
+| 术语 | 英文 | 解释 | 相关章节链接 |
+| --- | --- | --- | --- |
+| 核函数 | kernel | 在 GPU 上由大量线程并行执行的函数，是算子实现的核心单位。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| 启动 | launch | 主机端以 grid、block、共享内存等参数发起一次 kernel 执行。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| 网格与线程块 | grid and block | CUDA 的两级线程组织方式；grid 由 block 组成，block 内线程可共享共享内存。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| 存储层级 | memory hierarchy | 寄存器、共享内存、L1/L2 缓存与 HBM 组成的多级存储，容量与延迟逐级变化。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| 占用率 | occupancy | 每个 SM 上活跃 warp 数相对上限的比例；高占用不必然代表高性能。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| 尾效应 | tail effect | 最后一波 block 数量不足导致部分 SM 空转，拉长总耗时。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| 停顿 | stall | warp 因等待内存、屏障、指令依赖等无法发射指令的状态。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| 寄存器压力 | register pressure | 每线程寄存器用量过高导致可驻留 warp 减少，进而限制占用率。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| 张量核心 | tensor core | GPU 上执行矩阵乘加的高吞吐单元，需要匹配的布局与数据类型。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| 屋顶线模型 | roofline | 用峰值算力与峰值带宽刻画性能上界的模型，区分计算受限与访存受限。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| 算术强度 | arithmetic intensity | 每字节访存对应的浮点运算数，决定 kernel 更接近哪条屋顶线。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| 预填充 | prefill | 推理中一次性处理提示词的阶段，通常计算密集、并行度高。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| 解码 | decode | 推理中逐 token 生成的阶段，通常受显存带宽与延迟约束。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| 键值缓存 | KV cache | 缓存历史 token 的 key 与 value，避免 decode 阶段重复计算。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| 算子融合 | fusion | 把多个算子合并成一个 kernel 以减少访存与启动开销；成立依赖 dtype、shape 与布局。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| 数据类型 | dtype | 张量元素的数值类型，如 FP32、BF16、FP16、FP8；影响精度、带宽与指令选择。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| 形状 | shape | 张量各维的长度；决定 tiling、并行度与边界处理方式。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| 合并访问 | coalescing | 一个 warp 的多个线程访问连续地址，硬件把它合并为少量内存事务。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| 波次 | waves per SM | 一次 launch 能把多少「波」block 填满全部 SM；小于 1 说明并行度不足。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| 矩阵乘指令 | MMA | 走张量核心的矩阵乘累加指令，对数据布局与 dtype 有硬性要求。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| 向量矩阵乘 | GEMV | 矩阵乘向量；decode 阶段形状退化为 GEMV，因而常受带宽限制。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| 变长序列 | varlen | 一个 batch 内各条序列长度不同，需要按偏移量分派；也是投机优化常写死的地方。 | [KDA](/guide/kda/) |
+| 性能分析器 | ncu | NVIDIA Nsight Compute，用于采集 kernel 级指标与时间线的 profiling 工具。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| 当前最优 | SOTA | state of the art，特定任务与条件下公开已知的最好结果。 | [KDA](/guide/kda/) |
+
+## 项目、协议与生态
+
+| 术语 | 英文 | 解释 | 相关章节链接 |
+| --- | --- | --- | --- |
+| Kernel Design Agents | KDA | NVIDIA 与 MIT HAN Lab 相关团队开源的 Agent 写 CUDA kernel 工作流，含 Coder、Verifier 与两个 skill；团队隶属以官方为准。 | [KDA](/guide/kda/) |
+| Humanize | Humanize | 以写/判分离与判断工程为核心的 Agent 编码协议与工具集。 | [Humanize](/guide/humanize/) |
+| Humanize 2 | Humanize 2 / hmz | 把编排搬到独立运行时的新一代实现，flow 即 Python async 函数；仍在演进。 | [Humanize](/guide/humanize/) |
+| 知识库 | KernelWiki | KDA 的可检索领域知识库，汇总算子仓库、PR 与架构迁移约束。 | [KDA](/guide/kda/) |
+| 性能报告技能 | ncu-report | KDA 中把 NCU 分析顺序固化为六维框架的 skill。 | [KDA](/guide/kda/) |
+| 技能包 | skill | 带触发条件、输入、步骤、验证与失败模式的可复用经验单元。 | [Skills](/guide/skills/) |
+| RLCR | Ralph-Loop with Codex Review | 计划合同、builder 与全新上下文 reviewer 交替的迭代协议。 | [Humanize](/guide/humanize/) |
+| 停止钩子 | Stop hook | 会话结束时触发的强制检查，未通过则阻止结束。 | [Humanize](/guide/humanize/) |
+| 机械检查 | mechanical gates | 由脚本判定的硬性完成条件，如产物存在、baseline 一致、会话隔离。 | [Humanize](/guide/humanize/) |
+| 流 | flow | Humanize 2 中的编排单位，一段可组合的 Python async 函数。 | [Humanize](/guide/humanize/) |
+| Flame Chase | Flame Chase | 两个 Agent 交替、每轮新会话、只共享工作目录的 flow。 | [Humanize](/guide/humanize/) |
+| CuTe-DSL | CuTe DSL | CUTLASS 提供的 Python 内核 DSL，用布局与张量抽象描述高性能 kernel。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| B200 | NVIDIA B200 | Blackwell 架构数据中心 GPU，KDA 与 MLSys 竞赛的重要目标硬件。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| MLSys | MLSys Conference | 机器学习系统会议；2026 年设有 FlashInfer AI Kernel Generation Contest。 | [KDA](/guide/kda/) |
+| FlashInfer | FlashInfer | 面向 LLM 推理的高性能 kernel 库，也是竞赛与基准的重要来源。 | [资料库](/resources/) |
+| 混合专家 | MoE | Mixture of Experts，按 token 路由到部分专家计算的模型结构。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| 稀疏注意力 | DSA | DeepSeek Sparse Attention，竞赛中的注意力优化赛道之一。 | [KDA](/guide/kda/) |
+| 门控增量网络 | GDN | Gated Delta Net，竞赛中的线性注意力类赛道之一。 | [KDA](/guide/kda/) |
+| HOA | Humanize Olympiad Agents | Humanize 论文中的竞赛应用，报告在多项奥赛取得满分。 | [Humanize](/guide/humanize/) |
+| Loom | Loom | Humanize 论文中的应用案例，报告 180 秒预算下搜索吞吐提升约 2.34×；这是吞吐结果，不代表映射质量更好。 | [Humanize](/guide/humanize/) |
+| PR 档案 | PR archive | BBuf skills 中整理的 118 份模型 PR 历史，用于冷启动检索。 | [Skills](/guide/skills/) |
+| 编译器栈 | TIRx | 基于 Apache TVM 的硬件原生 kernel DSL 与编译器栈，配套 agent harness。 | [资料库](/resources/) |
+| TIRx Harness | TIRx Harness | MLC 开源的编译器 harness：把知识库、编译期分析与基准服务接给 Agent。 | [自建 harness](/guide/beyond/) |
+| CAKE IR | CAKE IR | KDA v0.6 引入的 agent 原生中间表示，用来调优再编译成 PTX 的版本。 | [KDA](/guide/kda/) |
+| IKET | IKET | 用于暴露 CuTe kernel 内部流水线的诊断工具。 | [KDA](/guide/kda/) |
+| FlashInfer Trace | FlashInfer Trace | 描述 GPU kernel 定义与负载的标准 JSON 格式，KDA 社区 wishlist 用它提交任务。 | [资料库](/resources/) |
+| 对照系统 | K-Search | 与 KDA 同期被比较的另一个 kernel 生成系统，论文用它作为消融基线。 | [Humanize](/guide/humanize/) |
+| Blackwell | NVIDIA Blackwell | NVIDIA 架构代际，B200/B300 属此代，SM 编号为 sm_100 与 sm_103。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| CUDA | CUDA | NVIDIA 的并行计算平台与编程模型，本书 kernel 一律指其上的 GPU kernel。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+
+## 评测、运维与风险
+
+| 术语 | 英文 | 解释 | 相关章节链接 |
+| --- | --- | --- | --- |
+| 评测 | eval | 用固定任务、测试与指标衡量 Agent 或 kernel 是否达标的系统。 | [自建 harness](/guide/beyond/) |
+| 奖励投机 | reward hacking | 优化了被测量的指标，却没有完成真实意图，甚至绕过关键计算。 | [自建 harness](/guide/beyond/) |
+| 沙箱 | sandbox | 限制文件、网络、权限与资源的隔离执行环境，使错误可恢复。 | [自建 harness](/guide/beyond/) |
+| 工作树 | worktree | git 的关联工作目录，可为每个候选创建独立副本，便于隔离与回滚。 | [自建 harness](/guide/beyond/) |
+| token 预算 | token budget | 对上下文与生成 token 设定的上限，常与费用预算一起使用。 | [自建 harness](/guide/beyond/) |
+| 框架演化 | harness evolution | Agent 能力提升后，评测器与流程必须同步升级的长期过程。 | [自建 harness](/guide/beyond/) |
+| 失效放行 | fail open | 校验失败时选择放行而非阻断，是机械检查里最容易被忽略的一类缺口。 | [Humanize](/guide/humanize/) |
+| 隐藏测试 | holdout | Agent 看不到的输入或 shape，只在最终判定时使用，用来防止对测试分布过拟合。 | [KDA](/guide/kda/) |
+| 墙钟预算 | wall-clock budget | 单个任务允许消耗的最长真实时间，是最容易被忽略的成本上限。 | [自建 harness](/guide/beyond/) |
+| 事实核查 | fact checking | 对数字、版本与结论回溯原始来源；本站要求标注来源与核对日期。 | [资料库](/resources/) |
+
+## 使用建议
+
+遇到不熟悉的缩写时，先在本页定位它属于“流程”“性能”还是“评测”，再点进对应章节看上下文。写报告或做分享时，建议同时写出术语的英文与适用条件，例如“在 B200、FP8、固定 shape 下报告 1.7×”，避免把一个条件下的数字推广成普遍结论。
+
+> 来源与版本：术语解释以本站各章与所列官方材料为基线，最后核对 2026-10-29。上游项目仍在快速演进，具体能力与数字以官方为准。完整链接见[资料库](/resources/)。

@@ -1,0 +1,173 @@
+---
+import Figure from '../Figure.astro';
+---
+
+<Figure caption="Humanize 的 RLCR 闭环：builder 与 reviewer 写判分离，reviewer 在新上下文中对照计划合同与机械 gates 作出判定。">
+	<div class="ka-diagram ka-humanize">
+		<svg
+			viewBox="0 0 960 520"
+			role="img"
+			aria-labelledby="ka-humanize-title ka-humanize-desc"
+			xmlns="http://www.w3.org/2000/svg"
+		>
+			<title id="ka-humanize-title">Humanize 写判分离流程</title>
+			<desc id="ka-humanize-desc">
+				先写计划合同并做理解度检查，由 Claude 担任 builder 写代码与收集证据，再由全新上下文中的 Codex reviewer 对照 72 道机械 gates 判定；不通过则继续下一轮，通过才结束。
+			</desc>
+
+			<defs>
+				<pattern id="ka-humanize-grid" width="28" height="28" patternUnits="userSpaceOnUse">
+					<path d="M28 0H0V28" fill="none" stroke="var(--ka-dg-grid)" stroke-width="1"></path>
+				</pattern>
+				<marker
+					id="ka-humanize-arrow"
+					viewBox="0 0 8 8"
+					refX="6.6"
+					refY="4"
+					markerWidth="7"
+					markerHeight="7"
+					orient="auto-start-reverse"
+				>
+					<path d="M0 0 8 4 0 8Z" fill="var(--ka-dg-line-strong)"></path>
+				</marker>
+				<marker
+					id="ka-humanize-arrow-amber"
+					viewBox="0 0 8 8"
+					refX="6.6"
+					refY="4"
+					markerWidth="7"
+					markerHeight="7"
+					orient="auto-start-reverse"
+				>
+					<path d="M0 0 8 4 0 8Z" fill="var(--ka-dg-amber)"></path>
+				</marker>
+			</defs>
+
+			<rect width="960" height="520" fill="url(#ka-humanize-grid)" opacity="0.55"></rect>
+
+			<text x="28" y="34" class="dg-mono dg-muted" font-size="12.5">
+				HUMANIZE · RLCR / 写判分离
+			</text>
+			<text x="932" y="34" text-anchor="end" class="dg-mono dg-amber" font-size="12.5">
+				只有 reviewer 能宣布完成
+			</text>
+
+			<!-- 语境隔离墙 -->
+			<g aria-hidden="true">
+				<path d="M576 80V300" fill="none" stroke="var(--ka-dg-amber)" stroke-width="1" stroke-dasharray="4 6" opacity="0.45"></path>
+				<text x="576" y="76" text-anchor="middle" class="dg-mono dg-amber" font-size="11" opacity="0.9">CONTEXT WALL</text>
+			</g>
+
+			<!-- 01 计划合同 -->
+			<g>
+				<rect x="28" y="92" width="164" height="190" rx="13" class="dg-surface dg-line"></rect>
+				<text x="44" y="118" class="dg-mono dg-muted" font-size="11">01 / CONTRACT</text>
+				<text x="44" y="152" class="dg-title dg-text" font-size="21">计划合同</text>
+				<path d="M44 168H176" fill="none" stroke="var(--ka-dg-line)" stroke-width="1"></path>
+				<text x="44" y="194" class="dg-muted" font-size="13.5">验收标准</text>
+				<text x="44" y="216" class="dg-muted" font-size="13.5">边界与禁止项</text>
+				<text x="44" y="238" class="dg-muted" font-size="13.5">预算与停止条件</text>
+				<text x="44" y="264" class="dg-mono dg-faint" fill="var(--ka-dg-muted)" font-size="11.5">开工前写死</text>
+			</g>
+
+			<!-- 02 理解度检查 -->
+			<g>
+				<rect x="212" y="92" width="164" height="190" rx="13" class="dg-surface dg-line"></rect>
+				<text x="228" y="118" class="dg-mono dg-amber" font-size="11">02 / CHECK</text>
+				<text x="228" y="152" class="dg-title dg-text" font-size="21">理解度检查</text>
+				<path d="M228 168H360" fill="none" stroke="var(--ka-dg-line)" stroke-width="1"></path>
+				<text x="228" y="194" class="dg-muted" font-size="13.5">两道选择题</text>
+				<text x="228" y="216" class="dg-muted" font-size="13.5">没看懂 → 重写 plan</text>
+				<text x="228" y="238" class="dg-muted" font-size="13.5">不是走过场</text>
+				<text x="228" y="264" class="dg-mono dg-amber" font-size="11.5">开工前 · 强制</text>
+			</g>
+
+			<!-- 03 builder -->
+			<g>
+				<rect x="396" y="92" width="168" height="190" rx="13" class="dg-surface dg-line"></rect>
+				<text x="412" y="118" class="dg-mono dg-teal" font-size="11">03 / WRITE · CLAUDE</text>
+				<text x="412" y="152" class="dg-title dg-text" font-size="21">builder</text>
+				<path d="M412 168H548" fill="none" stroke="var(--ka-dg-line)" stroke-width="1"></path>
+				<text x="412" y="194" class="dg-muted" font-size="13.5">写代码 · 跑测试</text>
+				<text x="412" y="216" class="dg-muted" font-size="13.5">把证据写进产物</text>
+				<text x="412" y="238" class="dg-muted" font-size="13.5">交出可复核结果</text>
+				<text x="412" y="264" class="dg-mono dg-teal" font-size="11.5">照计划合同执行</text>
+			</g>
+
+			<!-- 04 reviewer -->
+			<g>
+				<rect x="588" y="92" width="168" height="190" rx="13" fill="var(--ka-dg-amber-soft)" stroke="var(--ka-dg-amber)" stroke-width="1.2"></rect>
+				<text x="604" y="118" class="dg-mono dg-amber" font-size="11">04 / JUDGE · CODEX</text>
+				<text x="604" y="152" class="dg-title dg-amber" font-size="21">reviewer</text>
+				<path d="M604 168H740" fill="none" stroke="var(--ka-dg-line)" stroke-width="1"></path>
+				<text x="604" y="194" class="dg-muted" font-size="13.5">全新上下文</text>
+				<text x="604" y="216" class="dg-muted" font-size="13.5">只看产物与证据</text>
+				<text x="604" y="238" class="dg-muted" font-size="13.5">看不到对方对话</text>
+				<text x="604" y="264" class="dg-mono dg-amber" font-size="11.5">唯一判定者</text>
+			</g>
+
+			<!-- 05 gates -->
+			<g>
+				<rect x="780" y="92" width="152" height="190" rx="13" class="dg-surface dg-line"></rect>
+				<text x="796" y="118" class="dg-mono dg-muted" font-size="11">05 / GATES</text>
+				<text x="796" y="152" class="dg-title dg-text" font-size="21">判定</text>
+				<text x="796" y="174" class="dg-mono dg-amber" font-size="12.5">72 道机械检查</text>
+				<path d="M796 190H916" fill="none" stroke="var(--ka-dg-line)" stroke-width="1"></path>
+				<text x="796" y="212" class="dg-muted" font-size="13.5">三类问题</text>
+				<text x="796" y="234" class="dg-muted" font-size="13.5">进展判定</text>
+				<text x="796" y="256" class="dg-muted" font-size="12.5">只有 reviewer</text>
+				<text x="796" y="274" class="dg-muted" font-size="12.5">能宣布完成</text>
+			</g>
+
+			<!-- 卡间箭头 -->
+			<g aria-hidden="true" fill="none" stroke="var(--ka-dg-line-strong)" stroke-width="1.4">
+				<path d="M192 187H210" marker-end="url(#ka-humanize-arrow)"></path>
+				<path d="M376 187H394" marker-end="url(#ka-humanize-arrow)"></path>
+				<path d="M564 187H586" marker-end="url(#ka-humanize-arrow)"></path>
+				<path d="M756 187H778" marker-end="url(#ka-humanize-arrow)"></path>
+			</g>
+
+			<!-- 不通过：继续下一轮 -->
+			<g aria-hidden="true">
+				<path
+					d="M820 282V332H480V286"
+					fill="none"
+					stroke="var(--ka-dg-amber)"
+					stroke-width="1.2"
+					stroke-dasharray="4 5"
+					marker-end="url(#ka-humanize-arrow-amber)"
+				></path>
+				<text x="650" y="324" text-anchor="middle" class="dg-amber" font-size="13.5">
+					不通过 · 继续下一轮
+				</text>
+			</g>
+
+			<!-- 通过：结束 -->
+			<g aria-hidden="true">
+				<path
+					d="M880 282V356"
+					fill="none"
+					stroke="var(--ka-dg-amber)"
+					stroke-width="1.3"
+					marker-end="url(#ka-humanize-arrow-amber)"
+				></path>
+				<text x="892" y="326" class="dg-amber" font-size="12.5">通过</text>
+			</g>
+
+			<g>
+				<rect x="780" y="360" width="152" height="68" rx="12" fill="var(--ka-dg-amber-soft)" stroke="var(--ka-dg-amber)" stroke-width="1.2"></rect>
+				<text x="856" y="388" text-anchor="middle" class="dg-title dg-amber" font-size="19">结束</text>
+				<text x="856" y="408" text-anchor="middle" class="dg-muted" font-size="12.5">由 reviewer 宣布</text>
+			</g>
+
+			<!-- 底部原则 -->
+			<g>
+				<rect x="28" y="444" width="904" height="52" rx="12" class="dg-surface-2 dg-line-strong"></rect>
+				<text x="48" y="475" class="dg-mono dg-amber" font-size="11.5">RULE</text>
+				<text x="112" y="475" class="dg-muted" font-size="14">
+					写 / 判分离：builder 不能宣布完成；reviewer 用新上下文复核，过机械 gates 后才允许结束。
+				</text>
+			</g>
+		</svg>
+	</div>
+</Figure>

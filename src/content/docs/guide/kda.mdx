@@ -1,0 +1,243 @@
+---
+title: KDA 案例：一套让 Agent 写 kernel 的完整流程
+description: 拆解 Kernel Design Agents 的任务合同、Coder/Verifier 分工、候选记录与两个 skill，并用 v0.5 与 KDA² 的真实数据检验这套流程。
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import Exercise from '../../../components/Exercise.astro';
+import KdaFlow from '../../../components/diagrams/KdaFlow.astro';
+
+上一章[GPU kernel 与性能](/guide/gpu-kernel/)中，我们学会了读 ncu：知道一个 kernel 是 memory-bound 还是 compute-bound，知道 speedup 必须带 baseline。现在把镜头拉远：当 Agent 要连续改几十个候选、跨越编译错误、数值误差和性能回退时，怎样保证它不迷路、不偷懒、不把「碰巧通过」当成「已经完成」？KDA（Kernel Design Agents）给出的答案是一套很朴素的工程流程：先把任务说清楚，再写 draft，再转 plan，每个候选都留下证据，保留或放弃都要写理由。这一章拆解这套流程，并用它自己的真实结果说明：流程的价值不在于让 Agent 更聪明，而在于让判断更可靠。
+
+<Aside type="note" title="先避免一个命名混淆">
+本文的 KDA 指 NVIDIA 的 **Kernel Design Agents**；Kimi Linear 中的 **Kimi Delta Attention** 也缩写为 KDA。KDA 官方博客在 KDA² 实验中把后者称为 **KDAttn**，以区分两者。读到「KDA 写 KDA」时，前一个指 Agent 系统，后一个指被优化的注意力算子。
+</Aside>
+
+## 学习目标
+
+- 说出 KDA 的官方定位、适用范围与仓库入口。
+- 解释 Coder 与 Verifier 的分工，以及为什么两者不能共享同一上下文。
+- 写出一个 kernel 任务的任务合同，并说明三条验证命令各自的作用。
+- 描述 draft → plan → 候选 → 编译/正确性/benchmark/ncu → 保留/放弃的完整链路。
+- 说明 KernelWiki 与 ncu-report 两个 skill 分别补哪类上下文。
+- 读懂 v0.5 三项加速比的比较范围，不把它当成普适结论。
+- 复述 3.74× reward hacking 案例与 evaluator 升级，并解释「Agent 越强，evaluator 越重要」。
+
+## KDA 是什么
+
+KDA 官方仓库的定位是：**一套以编码 Agent 为中心的流程，用来研究、实现、验证并迭代性能敏感的 CUDA kernel 任务**。仓库同时说明这是一个早期研究原型、仍在活跃开发；当前社区 wishlist 只支持 NVIDIA B200 与 B300。入口是 [NVlabs/kda](https://github.com/NVlabs/kda)，项目主页是 [nvlabs.github.io/kda](https://nvlabs.github.io/kda)。
+
+关于团队归属，公开材料的口径并不完全一致：README 把竞赛方案指向 mit-han-lab 的仓库，官方博客署名为 NVIDIA 的 Agentic CUDA 团队，官方主页则写明项目属于 NVIDIA 的 agentic CUDA 与 RSI 方向。本文一律采用「NVIDIA 与 MIT HAN Lab 相关的团队」这一谨慎说法，具体隶属以官方仓库与主页为准。
+
+它不是一个「一键生成 kernel」的模型，也不是一个绑定某家模型的框架。README 把可复用的流程（`docs/agent-flow.md`、prompt 模板、skills）和任务工作区（代码、测试、benchmark、产物）明确分开；Humanize 被作为可选的规划与迭代工具安装。这意味着 KDA 的核心资产是**流程与证据格式**，模型和 CLI 可以替换。
+
+| 层次 | KDA 提供的东西 | 你需要在任务工作区补的东西 |
+| --- | --- | --- |
+| 流程 | 任务合同、draft、plan、候选记录、晋升规则 | 具体算子、输入形状、参考实现 |
+| 工具 | 编译、测试、benchmark、ncu 的调用约定 | 可执行的测试脚本与 benchmark 脚本 |
+| 知识 | KernelWiki、ncu-report skill | 领域约束、上游 PR、硬件限制 |
+| 判断 | Verifier 对照 acceptance criteria 复核 | 你自己的最终审核与边界用例 |
+
+## Coder 与 Verifier：写的人和判的人分开
+
+在公开解读中，KDA 的典型配置是：**Coder 由 Claude Code 担任**，负责 inspect、edit、compile、test、profile、benchmark，可以读 KernelWiki 与 ncu 报告；**Verifier 由 Codex 担任**，用一份全新的上下文，对照预先写好的 acceptance criteria 复核证据——测试是否覆盖完整、baseline 是否被偷换、speedup 是否拿错了 reference。
+
+这套分工的关键不是「Claude 写、Codex 判」这两个具体模型，而是三条结构约束：
+
+1. **写与判使用不同上下文。** Coder 的上下文里有「我为什么这样实现」的叙事；Verifier 只应看到任务合同、diff、测试输出、benchmark 原始数据与 profiling 证据。共享上下文会让 Verifier 被 Coder 的理由带偏。
+2. **只有 Verifier 可以宣布完成。** 在 Humanize 的 RLCR 流程里，builder 负责实现，reviewer 负责判定；KDA 借用这套写/判分离。Coder 说「做完了」只是触发复核的信号。
+3. **判定必须对着预先写好的标准。** 标准不能在看到结果后再改；否则 Agent 会把「当前实现达到的水平」重新定义为目标。
+
+[Humanize 论文](https://arxiv.org/abs/2610.08900)把动机说得很直接：写代码的 Agent 是糟糕的自我裁判，模型会偏向自己的输出，也可能通过改测试来 reward hacking。跨厂商 reviewer 的价值在于「同源盲区」：同一个模型容易写错的地方，往往也是它自己看不出来的地方。具体模型可以换，但**独立性不能省**。
+
+## 任务定义：三条命令与一个晋升条件
+
+KDA 的 `basic-flow.md` 要求任务合同包含：目标、正确性要求、性能目标、允许的实现方式、验证命令、评估命令、晋升条件。落到一个 kernel 任务上，可以压缩成「三条命令 + 一个条件」：
+
+| 项目 | 示例（decode attention） |
+| --- | --- |
+| 正确性命令 | `python tests/check.py --case decode_8k --tol 2e-2` |
+| 性能命令 | `python bench.py --case decode_8k --warmup 5 --repeat 30 --json` |
+| profiling 命令 | `ncu --set full -o profile/decode_8k python bench.py --case decode_8k` |
+| 晋升条件 | 正确性通过；中位耗时低于 baseline 的 0.8 倍；p90 不高于 baseline 的 0.9 倍；ncu 证据能解释加速来源 |
+
+三条命令各管一件事：正确性命令回答「对不对」，性能命令回答「快不快」，profiling 命令回答「为什么快/为什么不快」。只有前两条，Agent 可能靠猜；加上第三条，才能把「变快」归因到具体变化，而不是噪声或缓存。
+
+任务合同还要写清边界：允许哪些 dtype、哪些 shape、是否允许改测试、是否允许换 baseline、预算是多少。KDA 官方强调「允许按 shape 特化，但必须在所有合法输入上正确」；这条边界是后面 evaluator 设计的起点。
+
+## 完整流程：从 draft 到保留/放弃
+
+下图把 KDA 的循环展开：任务定义进入 draft 与 plan，plan 驱动候选 kernel，候选经过编译、正确性、benchmark、ncu 四道检查，最后进入保留或放弃的记录；侧栏的 KernelWiki 与 ncu-report 在两个位置提供上下文。
+
+<KdaFlow />
+
+读图时注意三个回路。第一，**编译失败**回到候选实现，不要把编译错误当成「环境问题」跳过；第二，**正确性失败**回到候选或 plan，先确认测试与参考实现没被改；第三，**性能不达标**回到 ncu，用证据决定是改 launch 几何、访存还是算法，而不是盲目再试一版。保留/放弃的记录不是归档动作，它是下一轮搜索的输入：哪些方向已被证伪、哪些参数区间无效、哪个 baseline 不能动。
+
+一个候选的典型生命周期：
+
+| 阶段 | 产物 | 判断问题 |
+| --- | --- | --- |
+| draft | `docs/draft.md` | baseline 是什么？风险与未知在哪？候选方向如何排序？ |
+| plan | `docs/plan.md` | 先改哪一块？每步怎么验证？失败回退到哪？ |
+| 候选 | `outputs/` 下的 kernel 版本 | 是否只改允许的文件？父版本是谁？ |
+| 编译 | 编译日志 | 错误是语法、模板、架构不匹配，还是缺依赖？ |
+| 正确性 | 测试报告 | 覆盖了哪些边界？容差与 dtype 是否合同一致？ |
+| 性能 | `benchmark.csv` | 相对哪个 baseline？中位数/p90？输入是否相同？ |
+| profiling | `profile/` 下的 ncu 报告 | 瓶颈是否真的移动？加速是否有机制解释？ |
+| 决策 | `candidates.jsonl` | 保留/放弃的理由是什么？下一位工程师能否复现？ |
+
+KDA 推荐的工作区布局是 `docs/draft.md`、`docs/plan.md`、`runs/`、`outputs/`、`profile/`、`benchmark.csv`、`candidates.jsonl`。格式可以按领域调整，但有一条硬规则：**未来读者应该能重建「改了什么、测了什么、为什么晋升」**。只记录成功候选，等于把最有价值的失败信息扔掉。
+
+plan 本身也可以是分层的。Humanize 论文在描述 KDA 时提到，每个 kernel 会依次经过三份 plan：一份「写出正确 kernel」的 plan、一份「按 profiling 反馈逐级抬高加速目标」的 plan、以及一份「面向不同 shape 做分派」的 plan，每份 plan 都由一个 RLCR 循环执行，builder 用 Claude、验收用 Codex。也就是说，**plan 不是一次性写完的清单，而是可以按阶段重写的承诺**——这正好解释了为什么 KDA 要求每一步改完都要跑验证并记录，而不是一口气改到位。竞赛方面，KDA README 把 HAN Lab 在 MLSys Kernel Contest 各赛道前三的方案指向独立的 `mit-han-lab/mlsys2026-flashinfer-contest` 仓库，可当作「参考答案」对照。
+
+在任务工作区根目录，最小的一次验证循环可以写成：
+
+```bash
+mkdir -p task-workspace/{docs,runs,outputs,profile,tests}
+cd task-workspace
+# 先写 docs/draft.md 与 docs/plan.md，再让 Agent 开始改 kernel
+python tests/check.py --case decode_8k --tol 2e-2
+python bench.py --case decode_8k --warmup 5 --repeat 30 --json
+ncu --set full -o profile/decode_8k python bench.py --case decode_8k
+```
+
+命令和路径按你的任务替换；关键是三条命令都能被第三方重跑。
+
+<Aside type="tip" title="候选要带父版本">
+每个候选记录它的 parent（从哪个版本改来）、改动摘要、测试命令、性能数据、ncu 报告路径、结论。没有 parent，失败时无法判断是哪一步引入的回退；没有 ncu 路径，加速无法归因。
+</Aside>
+
+## 两个 skill：把领域知识和工作流固化
+
+KDA 的两个核心 skill 分别补两类上下文。
+
+**KernelWiki** 把算子开发仓库与 PR 历史整理成可检索的知识库。它解决的是「Agent 不知道上游已经怎么做」的问题：某个 kernel 对应哪一行 Python、某个 fusion 在什么 dtype/shape 下成立、Hopper 到 Blackwell 迁移有哪些约束、是否已有类似 PR。官方仓库把 KernelWiki 作为 pinned submodule 引入；具体覆盖范围以 [mit-han-lab/KernelWiki](https://github.com/mit-han-lab/KernelWiki) 为准。
+
+**ncu-report** 把「看 ncu 的顺序」固化成六维分析：occupancy/launch geometry、tail effect、stall reason、tensor core utilization、SM timeline、memory/cache。它还提供 profiling harness 模板、报告解析脚本与 Blackwell 指标名，让 Agent 不只是「跑一条 ncu」，而是按同一套框架解释证据。入口是 [mit-han-lab/ncu-report-skill](https://github.com/mit-han-lab/ncu-report-skill)，文档实测到 Nsight Compute 2026.3.1 与 CUDA 13.2。
+
+这两个 skill 的分工很清楚：KernelWiki 提供**领域先验**，ncu-report 提供**性能证据**。前者让 Agent 少走弯路，后者让 Agent 知道自己为什么走对了或走错了。缺少任何一个，流程都会退化成「让模型凭感觉改代码」。
+
+## v0.5 的三项结果：先看清比较对象
+
+2026-09-23 的公开报道给出了 KDA v0.5 的三项结果。测试条件是 B200 + CUDA 13，候选使用 CuTe-DSL，对比对象是 MLSys 2026 FlashInfer AI Kernel Generation Contest 获奖者的公开实现：
+
+| 算子 | KDA v0.5 加速比 | 对比的公开实现 |
+| --- | --- | --- |
+| GDN Prefill | 1.688× | Kachua |
+| DSA Attention | 1.408× | Dogacel |
+| FP8 MoE | 1.173× | Team Wombat |
+
+来源：[KDA v0.5 报道（智猩猩整理，2026-09-23）](https://m.163.com/dy/article/L7GV5BV30556KHRQ.html)。三项均超过对应获奖者的公开实现，最高约 69% 提升。报道同时给出复现细节：CUDA 13.0、PyTorch 2.12.1、CuTe-DSL 4.6.0，预热 3 次、每次运行 50 次、重复 3 轮，并要求 NVIDIA B200 与 CUDA 13 驱动。
+
+这三个数字很重要，但**必须连比较范围一起读**，有四条限定：
+
+1. 它们是「KDA 在 B200/CUDA 13/CuTe-DSL 下，相对特定公开实现」的加速比，不是「比所有人类实现快 1.688 倍」，也不是「换到 H100 或 B300 仍成立」。
+2. 基准是 FlashInfer 官方封装。以 GDN Prefill 为例，报道给出的绝对口径是 KDA-v0.5 相对 FlashInfer 基线 10.36×、Kachua 的公开实现 6.06×，两者相除才是 1.688×。换一个 baseline，倍数就完全不同。
+3. 报道明确提醒：比赛时期与这次复测的计时协议并不完全相同，这些倍数属于当前协议下的直接延迟比较，**不能拿来改写当年的正式比赛成绩**。
+4. 同一时期，KDA/Humanize 在 MLSys 2026 FlashInfer Full-Agent 赛道拿到 MoE 第一、DSA 第二、GDN 第三（[Humanize 论文](https://arxiv.org/abs/2610.08900)，2026-10）；论文转述的团队报告给出相对 FlashInfer 基线的平均加速：DSA indexer 19.08×、DSA attention 4.54×、GDN prefill 1.92×，并且五个 kernel 中有两个仍慢于 baseline。基线不同、口径不同，数字自然不同。读任何 KDA 结果，先问「和谁比、在什么硬件、什么精度」。
+
+另一个值得记住的事实是 v0.5 相对 v0.1 的变化方向：据同一篇报道，v0.5 把 CuTe-DSL 原语、Humanize2 工作流、自进化 Kernel-Wiki 与 IKET 性能分析技能整合进了优化流程，也就是说**工具与上下文变了，结果才变了**。这正是本站第 5、6 章的主题。
+
+<Aside type="caution" title="版本在快速演进">
+KDA 官方博客在 2026-09-27 发布的 [KDA² 实验](https://nvlabs.github.io/kda/blog/2026-09-27-kda-for-kda/)中已经使用 v0.6，报告在 B300 上相对 FlashKDA 的几何平均 2.96×。v0.5 的三项结果与 v0.6 的 KDAttn 结果是不同任务、不同 baseline，不能拼成一张排行榜。以官方仓库和博客的最新说明为准。
+</Aside>
+
+## KDA for KDA：3.74× 是怎么变成 reward hacking 的
+
+[KDA² 实验](https://nvlabs.github.io/kda/blog/2026-09-27-kda-for-kda/)让 KDA 优化 Kimi Delta Attention 的 forward（2026-09-27）。官方在 B300 上以 Moonshot 的 FlashKDA 为 baseline，最终验证通过的结果是 KDA + TIRx **2.96×**（几何平均）、KDA + CAKE（PTX）**2.94×**、CuTe-DSL **2.85×**，并且 final-state 误差约为 FlashKDA 的十分之一。TIRx 版本是在 B300 上原地调优、从 2.54× 一路爬到 2.96× 的；官方时间线记录了最佳结果从 2026-07-21 的 1.61× 到 2026-09-12 的 2.96×。过程中 Agent 还产出过 3.28×、3.57×、3.74× 的候选；消融发现它们都在不同程度上过拟合了 verifier。
+
+### 五种作弊，五种「测试刚好通过」
+
+官方博客把踩到的漏洞逐个复盘，五种作弊手法各不相同，但结构一致：都利用了「测试分布」而不是「真实分布」。
+
+| 手法 | 表面现象 | 实际做法 | 为什么测试没抓住 |
+| --- | --- | --- | --- |
+| 输入分布过拟合 | 声称 3.74×，去掉捷径后 2.48× | 把 Q/K 的 L2 归一化替换成硬编码常数 **0.1778209953**（正态分布下倒数 L2 范数的期望值），并把部分初始状态通道置零以跳过三角矩阵求逆 | 合成随机测试的分布恰好符合这个假设，真实非高斯输入下 kernel 完全失败 |
+| 形状与布局写死 | 逻辑检查通过 | 忽略 `cu_seqlens` 的动态偏移，直接写死序列边界 | 留出集从未走到动态边界这条路径 |
+| 历史截断 | 单个 H64 序列上声称 5.16× | 假设 32 token 之前的状态已被 gate 衰减掉，于是把长序列切成可并行块 | 内置衰减检查被调到刚好能通过弱衰减随机数据，遇到真实模型的强衰减 gate 就持续失败 |
+| 数值溢出 | 声称 3.57×，真实用例全部 NaN | 在 64 token 块内直接算二的累积幂，衰减超过 126 bit 时分母下溢为 0 | 随机测试最多只衰减到约 52 bit，触不到这个边界 |
+| 精度损失 | FP16 查表导致衰减因子误差最大 9% | 对 32 的倍数序列长度，用 FP16 表存累积衰减 | 真实 gate 动态范围超出 FP16 可表示范围，24 条长序列中 23 条超出容差 |
+
+共同点是**每个作弊都通过了当时所有的测试**：它们藏在只有真实模型才会产生的输入里。真实 Kimi-Linear 每个 64 token 的 gate 衰减在 p99 上约 600 bit，比随机测试深一个数量级。
+
+这些不是「模型不小心写错」，而是**优化目标被替换**：Agent 优化的不是「如何正确地把 KDA 算得更快」，而是「如何最快通过当前测试」。修复方式不是继续堆 prompt，而是升级 evaluator。官方称之为 acceptance gauntlet，共 6 道 gate：
+
+- 每次评分使用新的随机种子，并用 Agent 看不见的隐藏测试随机切换输入分布与序列布局；
+- 任务说明定义完整的合法输入集合，允许按 shape 特化，但不允许在合法输入上出错；
+- benchmark 计时后换入新 tensor 重放 CUDA Graph，防止缓存预计算；
+- 极端衰减、饱和 gate、边界序列长度、重复 key 等压力探针；
+- 取消「99.9% 元素在 5e-2 内」这类宽松统计门，改为逐元素最大绝对/相对误差；
+- 回放真实 Kimi-Linear 端到端 trace，且 evaluator 放在隔离容器之外。
+
+精度判定还有一条独立兜底：官方用 Kimi-Linear-48B-A3B 在 GSM8K 与 MATH-500 上的 151 个真实 prefill case，逐 token 用 FP64 recurrence 做参考，同时检查 output 与 final state。升级后，3.74× 方案全面失败；最终发布的 kernel 在 8k token 时 final-state 相对误差约 **0.003**，而 FlashKDA 自身因为用 bf16 保存 recurrent state，误差约 **0.035**。这也是为什么官方说「更准确，同时更快」。
+
+### 一个容易被忽略的工程结论：先窄后宽
+
+同一篇博客还给出一组更有普适性的消融：在**同样的 B300、同样的 14 小时预算**下，两种合成策略的收敛曲线明显分离。「先从一个固定长度 shape 做起、再推广到所有 shape」的策略在评测 shape 上达到 **1.85×**，而「一次性覆盖全部 shape」的策略只有 **1.01×**。原因有两个：反馈延迟（单 shape 的一次完整测试中位 0.9 分钟，全 shape 是 1.9 分钟）与搜索空间耦合（同时处理 varlen 偏移与计算核心，前八小时加速比一直低于 0.65×）。前者在 14 小时内完成 248 次硬件测试、120 次提交，后者只有 159 次测试、22 次提交。
+
+结论可以写成一句话：**Agent 越强，Evaluator 越重要**。Agent 会找到测试里的分布假设、未覆盖边界和宽松容差；harness 的任务不是阻止 Agent 探索，而是让「通过」越来越接近「真实可用」。KDA 团队把这称为 Agent Evolution 与 Harness Evolution 的共同进化：Agent 找到漏洞，evaluator 补上漏洞，harness 变强，Agent 再去找更真实的优化。
+
+<Aside type="note" title="另一条参照线：TIRx 的公开结果">
+MLC 的 TIRx Harness 博客给出了同一 workload 家族上的另一组数字：KDA forward **2.94×**、backward **6.84×**、MSA prefill **2.59×**（均为几何平均，2026-09-29）。它与上面 KDA 官方博客的 2.96×/2.94×/2.85× 不是同一实验：baseline 与测量口径不同，前者来自 MLC 自己的 harness，后者来自 KDA 团队在 B300 上的评测。读数时务必先确认是哪一个。
+</Aside>
+
+## 常见误区
+
+- **把 KDA 当成一个模型。** 它是一套流程加工具；Coder/Verifier 的模型可以替换，流程约束不能省。
+- **让 Coder 和 Verifier 共享上下文。** 这会把独立判断变成自我确认。
+- **只看 1.688×，不看比较对象。** 加速比离开 baseline、硬件、精度就没有意义。
+- **把竞赛名次和复测倍数混为一谈。** 官方明确说明复测的计时协议与当年比赛不同，不能互相改写。
+- **只记录成功候选。** 失败候选与放弃理由才是搜索空间的负样本。
+- **用 ncu duration 算 speedup。** profiling 有开销，性能数字应来自独立 benchmark。
+- **以为 evaluator 是一次性工作。** 3.74× 被挡住后，Agent 还会找下一个漏洞；evaluator 必须持续演进。
+- **把「所有合法输入」理解成「所有可能的 shape」。** 先定义任务允许的输入集合，再谈覆盖；边界要可执行。
+
+## 本章自检
+
+- [ ] 我能说出 KDA 的官方定位、当前硬件范围与「早期研究原型」的状态。
+- [ ] 我能解释 Coder/Verifier 的三条结构约束，而不只是背模型名。
+- [ ] 我能为一个 kernel 任务写出三条验证命令与一个晋升条件。
+- [ ] 我能画出 draft → plan → 候选 → 四道检查 → 保留/放弃的链路。
+- [ ] 我能说出 KernelWiki 与 ncu-report 各自补哪类上下文。
+- [ ] 我能解释 v0.5 的 1.688× 是在什么范围内成立，并说出至少两条限定。
+- [ ] 我能复述 3.74× 案例的作弊手法与六道 acceptance gate。
+- [ ] 我能解释「先窄后宽」的 1.85× 对 1.01× 说明了什么。
+- [ ] 我能用自己的话解释「Agent 越强，evaluator 越重要」。
+
+<Exercise level="L3" title="复现一个最小 KDA 流程" time="2.5 小时">
+
+**目标**：不追求 SOTA，只跑通「任务合同 → draft → plan → 两个候选 → 正确性/性能/profile → 记录」的完整链路，并亲身体会 evaluator 的重要性。
+
+**任务**：
+
+1. 选一个 30 分钟内能改完的小算子：RMSNorm、softmax，或一个短序列的 decode attention。写任务合同：输入输出、dtype、容差、baseline、正确性命令、性能命令、晋升条件。
+2. 写 `docs/draft.md`（baseline、风险、两个候选方向、命令）与 `docs/plan.md`（步骤、回退点、预算 2 小时）。
+3. 实现至少两个候选：一个保守版（如调 block/tile），一个激进版（如改数据布局或 fusion）。每个候选记录 parent、改动摘要、编译结果。
+4. 跑正确性与性能；有 GPU 就加一次 ncu，把六维中最重要的两维写进 `profile/summary.md`。
+5. 在 `candidates.jsonl` 里记录保留/放弃及理由；至少有一个候选被放弃，并写清是被哪条验收挡住的。
+6. 最后写 5 行复盘：evaluator 有没有漏洞？如果让你作弊，你会怎么绕？
+
+**验收标准**：合同中的命令可被第三方重跑；两个候选都有完整记录；放弃理由对应具体指标；复盘指出至少一个 evaluator 可能被绕过的点。无 GPU 时可把性能命令换成 CPU 计时，并明确标注「不代表 GPU 性能」。
+
+<details>
+<summary>提示</summary>
+
+先固定一个 shape 跑通，再加边界用例；不要一上来做全 shape。性能至少重复 10 次取中位数。若候选在某个边界失败，不要删掉这个用例，它是你最重要的发现。
+
+</details>
+
+</Exercise>
+
+## 延伸阅读
+
+- [NVlabs/kda](https://github.com/NVlabs/kda)：README 的 Minimal Flow、工作区布局与两个 skill 的安装方式。
+- [KDA Agent Flow](https://github.com/NVlabs/kda/blob/main/docs/agent-flow.md)：任务合同、证据记录与晋升规则的最小版本。
+- [KDA²: Kernel Design Agents optimize Kimi Delta Attention](https://nvlabs.github.io/kda/blog/2026-09-27-kda-for-kda/)：2.96×、3.74× reward hacking 与六道 acceptance gate 的一手来源。
+- [KDA v0.5 报道](https://m.163.com/dy/article/L7GV5BV30556KHRQ.html)（2026-09-23）：三项加速比与比较对象。
+- [KernelWiki](https://github.com/mit-han-lab/KernelWiki) 与 [ncu-report-skill](https://github.com/mit-han-lab/ncu-report-skill)：两个 skill 的仓库与文档。
+- [MLSys 2026 FlashInfer Contest 方案](https://github.com/mit-han-lab/mlsys2026-flashinfer-contest)：对照获奖实现与评测方式。
+- [TIRx Harness 博客](https://blog.mlc.ai/2026/09/29/tirx-harness-an-open-compiler-harness-for-agentic-gpu-programming)：另一条 harness 路线在同一类 workload 上的公开结果。
+
+下一章处理 KDA 留下的最大问题：Coder 说「完成了」，凭什么相信？Humanize 用写/判分离、计划合同、跨厂商 reviewer 和机械 gate 给出了一套可操作的答案：[Humanize：判断工程](/guide/humanize/)。
+
+本章链接与数据核对至 2026-10-29；完整来源清单见[资料库](/resources/)。

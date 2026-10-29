@@ -1,0 +1,28 @@
+<script is:inline>
+	(() => {
+		const root = document.querySelector('.ka-landing');
+		if (!root) return;
+
+		const items = Array.from(root.querySelectorAll('[data-reveal]'));
+		if (!items.length) return;
+
+		const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+		if (reduceMotion || !('IntersectionObserver' in window)) return;
+
+		items.forEach((item) => item.classList.add('ka-reveal-pending'));
+
+		const observer = new IntersectionObserver(
+			(entries) => {
+				entries.forEach((entry) => {
+					if (!entry.isIntersecting) return;
+					entry.target.classList.add('ka-reveal-in');
+					entry.target.classList.remove('ka-reveal-pending');
+					observer.unobserve(entry.target);
+				});
+			},
+			{ rootMargin: '0px 0px -8% 0px', threshold: 0.08 }
+		);
+
+		items.forEach((item) => observer.observe(item));
+	})();
+</script>

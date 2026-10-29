@@ -1,0 +1,145 @@
+---
+interface Chapter {
+	index: string;
+	en: string;
+	title: string;
+	desc: string;
+	href: string;
+	tag: '起点' | '基础' | '案例' | '进阶';
+}
+
+interface Appendix {
+	label: string;
+	en: string;
+	href: string;
+}
+
+const chapters: Chapter[] = [
+	{
+		index: '01',
+		en: 'INTRO',
+		title: '导读与环境',
+		desc: '建立 Kernel Agent 的全景：它为什么出现、能做什么，以及开始前需要准备什么。',
+		href: '/guide/intro/',
+		tag: '起点',
+	},
+	{
+		index: '02',
+		en: 'HARNESS',
+		title: 'Agent 与 harness',
+		desc: '把任务规格、工具循环、上下文与预算讲清楚；理解为什么 self-review 不可靠。',
+		href: '/guide/agent-harness/',
+		tag: '基础',
+	},
+	{
+		index: '03',
+		en: 'GPU KERNEL',
+		title: 'GPU kernel 与性能',
+		desc: '执行模型、roofline、prefill/decode 与 ncu 六维分析；学会正确比较 baseline 与 speedup。',
+		href: '/guide/gpu-kernel/',
+		tag: '基础',
+	},
+	{
+		index: '04',
+		en: 'KDA',
+		title: 'KDA：让 Agent 写 kernel',
+		desc: 'Coder 实现与 profiling，Verifier 对照验收标准复核证据；draft → plan → 候选 → 记录。',
+		href: '/guide/kda/',
+		tag: '案例',
+	},
+	{
+		index: '05',
+		en: 'HUMANIZE',
+		title: 'Humanize：判断工程',
+		desc: '写 / 判分离、跨厂商 reviewer、72 道机械检查；让「做完了」变成可验证的判定。',
+		href: '/guide/humanize/',
+		tag: '案例',
+	},
+	{
+		index: '06',
+		en: 'SKILLS',
+		title: 'Skills 与经验沉淀',
+		desc: '把专家经验拆成触发条件、步骤、验证与失败模式；用 KernelWiki、ncu-report 支撑下一次任务。',
+		href: '/guide/skills/',
+		tag: '进阶',
+	},
+];
+
+const appendices: Appendix[] = [
+	{ label: '术语表', en: 'GLOSSARY', href: '/glossary/' },
+	{ label: '练习册', en: 'EXERCISES', href: '/exercises/' },
+	{ label: '资料库', en: 'RESOURCES', href: '/resources/' },
+];
+---
+
+<section class="ka-section" id="chapters" aria-labelledby="ka-chapters-title">
+	<div class="ka-shell">
+		<div class="ka-section-head" data-reveal>
+			<p class="ka-eyebrow">Chapters</p>
+			<h2 id="ka-chapters-title" class="ka-section-title">六章，沿着同一条主线</h2>
+			<p class="ka-section-desc">
+				从理解 Agent，到让 Agent 自己写对 kernel。每一章都给出可验证的概念、案例与练习，而不是只列结论。
+			</p>
+		</div>
+
+		<div class="ka-chapter-grid">
+			{
+				chapters.map((chapter, index) => (
+					<a
+						class="ka-chapter"
+						href={chapter.href}
+						data-reveal
+						style={`--reveal-delay: ${index * 55}ms`}
+					>
+						<div class="ka-chapter-top">
+							<span class="ka-chapter-index" aria-hidden="true">{chapter.index}</span>
+							<span
+								class:list={[
+									'ka-chapter-tag',
+									chapter.tag === '案例' && 'is-case',
+									chapter.tag === '进阶' && 'is-advanced',
+								]}
+							>
+								{chapter.tag}
+							</span>
+						</div>
+						<p class="ka-chapter-en">
+							{chapter.index} / {chapter.en}
+						</p>
+						<h3 class="ka-chapter-title">{chapter.title}</h3>
+						<p class="ka-chapter-desc">{chapter.desc}</p>
+						<span class="ka-chapter-foot">
+							阅读本章
+							<svg
+								viewBox="0 0 16 16"
+								width="12"
+								height="12"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="1.7"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								aria-hidden="true"
+							>
+								<path d="M3 8h9" />
+								<path d="m8.5 4 4 4-4 4" />
+							</svg>
+						</span>
+					</a>
+				))
+			}
+		</div>
+
+		<div class="ka-appendix">
+			<span class="ka-appendix-label">附录 / APPENDIX</span>
+			{
+				appendices.map((item) => (
+					<a class="ka-appendix-link" href={item.href}>
+						{item.label}
+						<span>{item.en}</span>
+					</a>
+				))
+			}
+		</div>
+	</div>
+</section>

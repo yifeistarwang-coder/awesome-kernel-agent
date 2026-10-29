@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+	<defs>
+		<linearGradient id="ka-fav-bg" x1="8" y1="4" x2="56" y2="60" gradientUnits="userSpaceOnUse">
+			<stop stop-color="#0d1826" />
+			<stop offset="1" stop-color="#070b12" />
+		</linearGradient>
+		<linearGradient id="ka-fav-teal" x1="10" y1="20" x2="54" y2="46" gradientUnits="userSpaceOnUse">
+			<stop stop-color="#5eead4" />
+			<stop offset="1" stop-color="#22d3ee" />
+		</linearGradient>
+		<radialGradient id="ka-fav-glow" cx="32" cy="32" r="18" gradientUnits="userSpaceOnUse">
+			<stop stop-color="#fbbf24" stop-opacity=".28" />
+			<stop offset="1" stop-color="#fbbf24" stop-opacity="0" />
+		</radialGradient>
+	</defs>
+
+	<rect width="64" height="64" rx="14" fill="url(#ka-fav-bg)" />
+	<rect x=".8" y=".8" width="62.4" height="62.4" rx="13.2" fill="none" stroke="#223247" stroke-width="1.6" />
+
+	<circle cx="32" cy="32" r="18" fill="url(#ka-fav-glow)" />
+
+	<path d="M22.5 19 12.5 32l10 13" fill="none" stroke="url(#ka-fav-teal)" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" />
+	<path d="M41.5 19 51.5 32l-10 13" fill="none" stroke="url(#ka-fav-teal)" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" />
+
+	<rect x="26" y="26" width="12" height="12" rx="2.2" transform="rotate(45 32 32)" fill="#fbbf24" />
+</svg>

@@ -1,0 +1,137 @@
+---
+interface TermLine {
+	phase: string;
+	value: string;
+	tone?: 'fail' | 'verify' | 'ok' | 'record';
+}
+
+const lines: TermLine[] = [
+	{ phase: '[plan]', value: 'task.md → plan.md' },
+	{ phase: '[edit]', value: 'kernel.cu · tile=128' },
+	{ phase: '[run]', value: 'correctness · fail 02', tone: 'fail' },
+	{ phase: '[verify]', value: 'reject · retry with evidence', tone: 'verify' },
+	{ phase: '[edit]', value: 'kernel.cu · fix tail' },
+	{ phase: '[run]', value: 'correctness · pass', tone: 'ok' },
+	{ phase: '[profile]', value: 'ncu · 6 sections' },
+	{ phase: '[verify]', value: 'acceptance · pass', tone: 'verify' },
+	{ phase: '[record]', value: 'runs/0142 · keep', tone: 'record' },
+];
+---
+
+<section class="ka-hero" aria-labelledby="ka-hero-title">
+	<div class="ka-noise" aria-hidden="true"></div>
+
+	<div class="ka-shell ka-hero-grid">
+		<div class="ka-hero-copy">
+			<p class="ka-hero-kicker">Kernel Agent · 中文学习手册</p>
+
+			<h1 id="ka-hero-title" class="ka-hero-title" tabindex="-1">
+				<span class="line">让 Agent 写对、写快</span>
+				<span class="line"><span class="accent">GPU Kernel</span></span>
+			</h1>
+
+			<p class="ka-hero-sub">
+				从零理解 KDA、Humanize 与 skills：一套面向研究生的工程手册，把「让模型写
+				kernel」拆成<strong>可验证、可记录、可复用</strong>的工作流。
+			</p>
+
+			<div class="ka-hero-actions">
+				<a class="ka-btn ka-btn-primary" href="/guide/intro/">
+					开始学习
+					<svg
+						viewBox="0 0 20 20"
+						width="16"
+						height="16"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.7"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						aria-hidden="true"
+					>
+						<path d="M4 10h11"></path>
+						<path d="m10.5 5.5 4.5 4.5-4.5 4.5"></path>
+					</svg>
+				</a>
+				<a class="ka-btn ka-btn-secondary" href="/exercises/">
+					<svg
+						viewBox="0 0 20 20"
+						width="16"
+						height="16"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.6"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						aria-hidden="true"
+					>
+						<path d="M6 3.5h9.5v13H6z"></path>
+						<path d="M4 6.5h-.5v10H13"></path>
+						<path d="M8.5 7.5h4.5M8.5 10.5h4.5M8.5 13.5h2.5"></path>
+					</svg>
+					练习册
+				</a>
+			</div>
+
+			<ul class="ka-hero-meta">
+				<li>从零开始，不假设 CUDA 经验</li>
+				<li>含无 GPU 学习路径</li>
+				<li>关键数字可回到资料库核对</li>
+			</ul>
+		</div>
+
+		<div class="ka-hero-visual">
+			<div
+				class="ka-terminal"
+				role="img"
+				aria-label="工作流示意：Agent 从计划开始，修改 kernel，运行正确性检查，带着证据通过验证，最后记录保留结果；预算贯穿整个过程。"
+			>
+				<div class="ka-term-bar">
+					<span class="ka-term-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+					<span class="ka-term-title">agent@kernel: ~/workspace</span>
+					<span class="ka-term-badge">示意</span>
+				</div>
+
+				<div class="ka-term-body">
+					<p class="ka-term-line">
+						<span class="ka-term-prompt">$</span>
+						<span>kda run task --budget 8h</span>
+					</p>
+					{lines.map((line) => (
+						<p
+							class:list={[
+								'ka-term-line',
+								line.tone === 'verify' && 'is-verify',
+								line.tone === 'record' && 'is-record',
+							]}
+						>
+							<span class="ka-term-phase">{line.phase}</span>
+							<span class:list={['ka-term-value', line.tone === 'ok' && 'ok']}>{line.value}</span>
+						</p>
+					))}
+				</div>
+
+				<div class="ka-term-budget">
+					<span>budget</span>
+					<span class="ka-term-budget-bar" aria-hidden="true"><span></span></span>
+					<span>62%</span>
+					<span>hard stop</span>
+				</div>
+			</div>
+
+			<div class="ka-term-tags" aria-label="工作流要点">
+				<span class="ka-term-tag">写 / 判分离</span>
+				<span class="ka-term-tag">证据先于结论</span>
+				<span class="ka-term-tag is-amber">预算即约束</span>
+			</div>
+		</div>
+	</div>
+</section>
+
+<script is:inline>
+	(() => {
+		const title = document.getElementById('ka-hero-title');
+		const skipLink = document.querySelector('.sl-skip-link');
+		if (title && skipLink) skipLink.setAttribute('href', '#ka-hero-title');
+	})();
+</script>

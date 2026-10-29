@@ -1,0 +1,211 @@
+---
+title: GPU kernel 与性能：读懂「快」背后的证据
+description: 从执行模型、内存层级与 roofline 出发，理解 prefill/decode、fusion 与 dtype/shape，并用 ncu 六维框架定位瓶颈。
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import Exercise from '../../../components/Exercise.astro';
+
+上一章[Agent 与 harness](/guide/agent-harness/)中，harness 能判断「测试过没过」，但性能证据需要另一套语言：occupancy、warp stall、DRAM 吞吐、tensor core 利用率。若不懂这些，Agent 说「快了 1.8 倍」你只能选择相信；懂了，你才能追问「和谁比、在哪个 shape、瓶颈是否真的被搬走」。这一章补上 kernel 侧的最小知识集，目标不是让你手写 CUTLASS，而是让你能读懂一份 ncu 报告并做出可信判断。
+
+## 学习目标
+
+- 描述 thread、block、warp、SM 的关系，以及一次 kernel launch 的几何。
+- 解释寄存器、shared memory、L2、HBM 的层级与取舍。
+- 用 roofline 判断一个 kernel 是 compute-bound 还是 memory-bound。
+- 区分 prefill 与 decode 的性能特征，并说明 fusion、dtype、shape 的影响。
+- 按 ncu 六个维度读报告，指出首要瓶颈与下一步实验。
+- 识别 baseline 与 speedup 比较中的常见陷阱。
+
+## 一个 kernel 在 GPU 上怎么跑
+
+CUDA 程序把计算组织成三层：**thread** 是最小执行单位；**block** 是一组能通过 shared memory 与 barrier 协作的 thread；**grid** 是这次 launch 的全部 block。硬件侧，**SM**（Streaming Multiprocessor）是调度与执行的基本单元，一个 SM 同时驻留多个 block；每个 block 又被切成 **warp**，NVIDIA GPU 上通常是 32 个 thread 一组，以 warp 为单位取指与调度。
+
+一个最小的 vector add 足以看清索引关系：
+
+```cpp
+__global__ void add(const float* a, const float* b, float* c, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) c[i] = a[i] + b[i];
+}
+// launch: add<<<(n + 255) / 256, 256>>>(a, b, c, n);
+```
+
+`blockDim.x` 是每 block 的 thread 数，`blockIdx.x` 是 block 编号，`gridDim.x` 是 block 总数。launch 配置不是「越大越好」：block 太小，调度开销与边界浪费增加；block 太大，register 与 shared memory 压力会让每个 SM 能驻留的 block 变少。**occupancy** 就是「实际驻留的 warp 数 / SM 支持的最大 warp 数」，它决定有多少 warp 可以用来掩盖延迟，但不直接等于性能。
+
+| 概念 | 含义 | 常见误读 |
+| --- | --- | --- |
+| thread | 单个执行流，有自己的寄存器和程序计数器 | 以为 thread 越多越快 |
+| warp | 32 个 thread，同步执行同一条指令 | 忽略分支发散会让部分 lane 空转 |
+| block | 可协作的 thread 组，共享 shared memory | 以为一个 block 会被拆到多个 SM 上执行 |
+| SM | 执行 block 的硬件单元，含多个 warp scheduler | 把 SM 数当成「核心数」 |
+| grid | 一次 launch 的全部 block | 忽略 grid 太小会留下空闲 SM |
+
+以 Blackwell 为例，[ncu-report skill](https://github.com/mit-han-lab/ncu-report-skill) 的文档写明其针对 B200（sm_100）与 B300（sm_103），两者各 148 个 SM；不同型号、不同 MIG 配置的 SM 数不同，写死数字没有意义，判断方法才重要：`grid_size` 是否足以填满 SM、每个 SM 能驻留多少 block、最后一波是否只剩少量 block。这些会在 ncu 六维里展开。
+
+## 内存层级：性能问题多数在这里
+
+GPU 的存储层级可以粗略理解为：register（线程私有，最快）→ shared memory（block 内共享）与 L1（SM 内缓存）→ L2（芯片级共享缓存，具体分区随架构而定）→ HBM（显存，容量大但延迟高）。一个 kernel 的性能，很大程度上取决于它**搬了多少字节、这些字节是否被复用、访问是否连续**。
+
+三个直接后果：
+
+1. **合并访问（coalescing）**：一个 warp 的 32 个 thread 如果访问连续地址，硬件可以把它们合并成少量内存事务；如果地址跳跃，就会产生大量无用 sector。矩阵按行还是按列读，往往决定几倍差距。
+2. **复用决定层级**：能被多个 thread 复用的数据放 shared memory；只读一次的流式数据没必要占 shared memory；跨 block 复用的数据依赖 L2。
+3. **算术强度决定上限**：算术强度（arithmetic intensity）是「每搬运 1 字节做了多少 FLOP」。它把「计算」和「搬数」放在同一把尺子上，这就是 roofline 模型。
+
+roofline 的简化形式是：
+
+```text
+可达性能 = min(峰值算力, 峰值带宽 × 算术强度)
+```
+
+当算术强度低时，性能被带宽压住，叫 **memory-bound**；当算术强度高时，性能被算力压住，叫 **compute-bound**。两者的分界点叫 ridge point。举个纯教学例子：假设一块「示例 GPU」有 100 TFLOPS 的 BF16 算力和 2 TB/s 带宽，ridge point 是 50 FLOP/B；算术强度 10 FLOP/B 的算子最多跑到 20 TFLOPS，再怎么优化指令也突破不了带宽；算术强度 100 FLOP/B 的算子才可能吃满算力。以上数字是**示例数据**，只用于说明模型，不代表任何真实 GPU。
+
+这也解释了为什么「优化」必须先判断瓶颈类型：memory-bound 的 kernel 去调 tensor core 指令，通常没有收益；compute-bound 的 kernel 去加 prefetch，也可能只是让数据更早到达、继续等计算。
+
+## prefill 与 decode：同一个模型，两种性能问题
+
+在大模型推理里，prefill 一次处理整段 prompt，token 之间可以并行，矩阵乘的维度大，通常是 **compute-bound**，优化重点是 tile 形状、MMA 利用率、融合与并行切分。decode 每次只生成一个 token，序列维度退化为 1，GEMM 变成 GEMV 或小矩阵乘，算术强度骤降，通常是 **memory-bound**，瓶颈在权重读取与 KV cache 带宽，优化重点是减少搬运、提高 occupancy、隐藏延迟。
+
+| 维度 | prefill | decode |
+| --- | --- | --- |
+| 一次处理的 token | 整段 prompt，成百上千 | 每条序列 1 个 |
+| 主要形状 | 大 M/N/K 的 GEMM | 小 M、大 N/K，或 GEMV |
+| 典型瓶颈 | 算力、tensor core 利用率 | 显存带宽、内存延迟、KV cache |
+| 优化方向 | tiling、MMA、fusion、并行切分 | 减少读写、KV 分块、occupancy、prefetch |
+| 常见误判 | 只看一个 shape 的 TFLOPS | 把 decode 当 GEMM 调 tile |
+
+同一个 attention 算子，prefill 和 decode 的最优实现往往完全不同。验收时必须分开报：prefill 看吞吐（tokens/s），decode 看单 token 延迟或每秒 token 数，并写清 batch、序列长度、head 数与 head_dim。把它们混成一个「attention 加速比」，结论基本不可用。
+
+## fusion、dtype 与 shape
+
+**fusion（算子融合）** 的价值来自减少 HBM 往返和 launch 开销。例如把 bias、激活、残差加进 GEMM 的 epilogue，省掉一次写回再读出的完整张量。但 fusion 不是免费的：它增加 register 与 shared memory 压力，可能降低 occupancy；它改变计算顺序，可能影响数值结果；它要求参与融合的算子有相容的迭代空间、dtype 与布局。一个 fusion 在某个 dtype/shape 下成立，换一个形状就可能因为 tail 处理或寄存器溢出而变慢。KernelWiki 这类知识库之所以有用，正是因为它把「什么条件下成立」沉淀下来，而不是只给一个结论。
+
+**dtype** 同时影响速度、显存和正确性。FP32 精度高但吞吐低；TF32/BF16/FP16 通过 tensor core 提升吞吐；FP8/FP4 进一步压缩带宽，但需要 scaling、累加精度与更宽松的容差。降低精度不是「免费的加速」：如果参考实现是 FP32，而候选用 BF16 输入/输出或低精度累加，误差可能超出任务容差；反过来，若任务允许 BF16，坚持 FP32 比较就是人为制造慢 baseline。
+
+**shape** 决定一切。M/N/K 是否能被 tile 整除、head_dim 是否为 64/128、序列是否变长、batch 是否连续，都会改变最优 block 大小与数据布局。专用 kernel 可以针对一个 shape 做到极致，但任务合同必须写明「所有合法输入都要正确」。KDA 官方博客在 KDA² 实验中就强调：允许按 shape 特化，但不允许在任何合法输入上出错。
+
+<Aside type="caution" title="特化与过拟合只差一步">
+针对固定 shape 调参是合法优化；把输入分布的统计规律写死进 kernel 是作弊。前者在合法输入集合上仍然正确，后者只在测试分布上「看起来正确」。区分二者的唯一办法，是覆盖边界的 evaluator。
+</Aside>
+
+## ncu 六维分析
+
+Nsight Compute（ncu）是 NVIDIA 的 kernel profiler。它能在不修改源码的情况下采集 launch 几何、occupancy、stall、tensor core、DRAM/L2 等计数器，并给出逐行热点。ncu-report skill 把这些观察固化成六个维度；建议按顺序走完，不要看到第一个异常就停下。
+
+| 维度 | 要回答的问题 | 关键读数 | 常见动作 |
+| --- | --- | --- | --- |
+| 1 occupancy 与 launch 几何 | grid 够不够大？occupancy 被什么限制？ | grid/block、waves per SM、register/shared 限制、理论/实际 occupancy | 调 block、`__launch_bounds__`、减少寄存器 |
+| 2 tail effect | 是否有少数 block 拖尾？ | 每 SM active cycles 的最大/最小、PM 采样时间线 | 切分变长任务、work stealing、增加并行度 |
+| 3 stall reason | warp 不发射时在等什么？ | long/short scoreboard、barrier、math pipe throttle、逐行采样 | 合并访存、加 ILP、减少同步 |
+| 4 tensor core 利用率 | 矩阵乘形状的 kernel 用上 MMA 了吗？ | tensor pipe active、HMMA/UTCMMA 指令数 | 改 tile、用 CUTLASS/CuTe、检查 dtype |
+| 5 SM 时间线 | 整个 kernel 的利用是否平稳？ | SM active、DRAM throughput 随时间变化 | 修 pipeline、双缓冲、消除气泡 |
+| 6 memory/cache | 带宽打满了吗？cache 是否有效？ | DRAM 吞吐、L2 命中、读写字节 | 合并访问、提高复用、改布局 |
+
+几个判断原则值得先记住：
+
+- **waves per SM 小于 1**：grid 太小，部分 SM 全程空闲；先加并行度，再谈指令优化。
+- **waves per SM 在 1 到 2 之间**：很可能有 tail wave；看最后一波占整个 kernel 时间的比例。
+- **理论 occupancy 100% 但实际很低**：瓶颈更可能在 stall 或 tail，不在 launch 配置；去第 3、5 维。
+- **long scoreboard 占比高**：在等全局内存；先看第 6 维的访问模式，再考虑 prefetch 或更多并发 warp。
+- **tensor core 为 0% 且算子是矩阵乘形状**：大概率漏掉了 MMA；但如果形状很小或极不规则，强行上 tensor core 未必划算。
+
+一次典型的采集命令：
+
+```bash
+mkdir -p profile
+ncu --set full --target-processes all \
+    -o profile/attn_decode \
+    python bench.py --case decode_8k
+ncu --import profile/attn_decode.ncu-rep --page details
+```
+
+`--set full` 采集的计数器多、开销大，适合定位问题；日常迭代可以先用较小的 section，确认方向后再采全量。ncu 的耗时不是生产耗时，clock control 也会改变频率，所以**不要用 ncu 的 duration 直接算 speedup**；性能数字应来自独立 benchmark。
+
+### 一份示例 ncu 摘要（示例数据）
+
+下面是一张教学用的摘要表。所有数值都是**示例数据**，不是任何真实 GPU 或项目的实测结果；任务设定为 BF16 decode attention，batch 16、32 heads、head_dim 128、序列 8192，B200 级 GPU。
+
+| 维度 | 示例读数 | 解读 |
+| --- | --- | --- |
+| launch 几何 | 2048 blocks × 128 threads；每 SM 最多 8 blocks；148 SMs；约 1.73 waves；理论 occupancy 50%（register 限制），实际 37.5% | grid 不算小，但最后一波只覆盖约 73% 的 SM；occupancy 被寄存器压住 |
+| tail effect | 每 SM active cycles 最大高于均值 18%，最低低于均值 41%；最后 28% 时间 SM 活跃度低于 45% | 存在明显拖尾，变长 KV 使部分 CTA 工作更重 |
+| stall reason | long scoreboard 44% 采样，barrier 9%，not_selected 6% | 主要在等全局内存，不是同步或发射瓶颈 |
+| tensor core | tensor pipe active 8% | decode 的小矩阵乘没有吃满 MMA，但当前瓶颈不在这里 |
+| SM 时间线 | 前段平稳，后段缓慢下降；DRAM 吞吐 71%，SM 活跃 38% | 典型「高吞吐 + 长尾」，不是 grid 太小 |
+| memory/cache | DRAM 吞吐 71% 峰值；L2 命中 58%；读写比约 3:1 | 带宽已较高但未饱和，延迟与 tail 更可疑 |
+
+综合判断：首要问题是 **KV 访问的延迟与 CTA 间负载不均**，而不是 tensor core 利用率。下一步应该做两件事：把 KV 按序列切得更细，增加 CTA 数量并降低单个 CTA 的工作量；同时尝试减少寄存器占用或调整 block 大小，提高可驻留 warp 数。可以预期 tail 指标改善、long scoreboard 下降；如果 DRAM 吞吐反而下降，说明切分带来了额外重复读取，需要回到数据布局。
+
+这就是「指标 → 假设 → 实验 → 再测量」的闭环。ncu 不给答案，它只给证据。
+
+## baseline 与 speedup 的坑
+
+一个 speedup 数字至少隐含五个前提：和谁比、在什么硬件、什么输入、什么精度、测的是 kernel 还是端到端。任何一项没写清，数字都不可复现。
+
+- **baseline 必须是任务开始时固定的实现**，带 commit、编译选项、dtype 与运行命令。Agent 不能中途把 baseline 换成自己的第一版。
+- **计时口径要一致**：kernel-only 对 kernel-only，端到端对端到端；warmup、重复次数、取中位数还是最大值、是否用 CUDA Graph，都要写清。
+- **不要只报最好一次**：GPU 有时钟波动与噪声，至少报中位数与 p90；只报 best 容易把噪声当优化。
+- **跨硬件/跨版本不可直接比**：B200 与 B300、CUDA 12 与 13、不同 driver，结果不可平移。
+- **正确性必须先过**：更快但误差超标的候选不是优化，是另一种实现；[KDA 官方博客](https://nvlabs.github.io/kda/blog/2026-09-27-kda-for-kda/)里 CuTe 版本为了正确性去掉 FP16 decay table，接受了约 2% 的速度损失（2026-09-27），这就是明确的取舍。
+- **比较对象要同层级**：KDA v0.5 的 1.688×、1.408×、1.173× 是相对 MLSys 2026 FlashInfer 竞赛三位获奖者的**公开实现**，在 B200 + CUDA 13 + CuTe-DSL 条件下测得（来源与日期见第 4 章）；它不是「比所有人类实现快 1.688 倍」，也不是「在任何 GPU 上都成立」。
+- **口径不同的数字不能并列**：TIRx 在 KDA workload 上报告 forward 2.94×、backward 6.84×、MSA prefill 2.59×（几何平均，来源为 [MLC TIRx 博客](https://blog.mlc.ai/2026/09/29/tirx-harness-an-open-compiler-harness-for-agentic-gpu-programming)，2026-09-29）。它与 KDA v0.5 的三个数字 baseline 不同、任务不同，只能各自在自己的比较框架内解读。
+
+<Aside type="note" title="读 speedup 时先问三句">
+「baseline 的 commit 是什么？」「输入和 dtype 是否完全相同？」「这个数字是 kernel 时间还是端到端？」三问答不齐，先不要把这个数字写进结论。
+</Aside>
+
+## 常见误区
+
+- **occupancy 越高越好。** 高 occupancy 只是提供更多延迟隐藏的候选；如果寄存器溢出或 shared memory 冲突，反而更慢。
+- **tensor core 用得越多越好。** 小形状、不规则形状、内存受限的 kernel，MMA 未必是瓶颈。
+- **ncu 的 duration 就是真实耗时。** profiling 有开销，clock control 会改变频率；性能结论要来自独立 benchmark。
+- **一个 shape 快就是快。** 未覆盖的合法输入可能直接失败或严重退化。
+- **fusion 一定省时间。** 融合可能增加寄存器压力、减少并行度，甚至改变数值结果。
+- **加速比可以跨论文比较。** 不同 baseline、不同硬件、不同精度的数字不能直接横比。
+
+## 本章自检
+
+- [ ] 我能画出 thread → warp → block → SM → grid 的层级，并解释 occupancy。
+- [ ] 我能说出 register、shared memory、L2、HBM 的容量/延迟/复用取舍。
+- [ ] 我能用 roofline 判断一个算子是 compute-bound 还是 memory-bound。
+- [ ] 我能说出 prefill 与 decode 各一项关键优化手段。
+- [ ] 我能按 ncu 六维顺序分析一份报告，而不是只盯一个指标。
+- [ ] 我能指出一个 speedup 数字缺失的至少三个前提。
+- [ ] 我知道示例数据不能当作实测结论。
+
+<Exercise level="L2" title="从一份 ncu 摘要找首要瓶颈" time="35 分钟">
+
+**目标**：练习「指标 → 假设 → 实验」的对应关系，避免看到低 occupancy 就盲目调 block。
+
+**任务**：只使用本章那张标注「示例数据」的 ncu 摘要表，完成以下三问：
+
+1. 按影响排序，写出前两个瓶颈，并为每个瓶颈引用至少两个指标作为依据。
+2. 为每个瓶颈设计一个实验：改什么、预期哪个指标变化、如果指标没变说明什么。
+3. 写出一个「现在不该做」的优化，并解释为什么它不该优先做。
+
+**验收标准**：每个结论都能对应到表中的具体读数；两个实验的预期变化方向明确；「不该做」的理由与瓶颈类型一致。没有 GPU 也能完成。
+
+<details>
+<summary>提示</summary>
+
+先看 tail 与 long scoreboard 是否指向同一件事；再看 tensor core 低是否真的影响当前瓶颈。注意 occupancy 低可能是结果而不是原因。
+
+</details>
+
+</Exercise>
+
+## 延伸阅读
+
+- [CUDA C++ Programming Guide](https://docs.nvidia.com/cuda/cuda-c-programming-guide/)：执行模型、内存层级与 launch 的权威定义。
+- [Nsight Compute Documentation](https://docs.nvidia.com/nsight-compute/)：section、metric 与 PM sampling 的官方说明。
+- [ncu-report-skill](https://github.com/mit-han-lab/ncu-report-skill)：六维分析、诊断 playbook 与可复用脚本。
+- [Roofline: An Insightful Visual Performance Model](https://doi.org/10.1145/1498765.1498785)：roofline 的原始论文。
+- [FlashInfer](https://github.com/flashinfer-ai/flashinfer)：attention 与 MoE kernel 的真实实现与 benchmark。
+- [KDA 官方博客 KDA²](https://nvlabs.github.io/kda/blog/2026-09-27-kda-for-kda/)：真实 kernel 优化里「精度换速度」与验收加固的一手案例。
+- [TIRx Harness 博客](https://blog.mlc.ai/2026/09/29/tirx-harness-an-open-compiler-harness-for-agentic-gpu-programming)：编译器视角下的 kernel 优化工作流与结果口径。
+- [vLLM 文档](https://docs.vllm.ai/)：prefill/decode、continuous batching 与 KV cache 的系统视角。
+
+下一章把 harness 与 kernel 两块拼起来，看 KDA 如何定义任务、组织 Coder 与 Verifier、用 KernelWiki 和 ncu-report 两个 skill 支撑迭代，并用 v0.5 与 KDA² 的真实数据检验这套流程：[KDA 案例](/guide/kda/)。
+
+本章链接与数据核对至 2026-10-29；示例数据仅用于教学，完整来源清单见[资料库](/resources/)。
