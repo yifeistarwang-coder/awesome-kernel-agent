@@ -748,9 +748,16 @@ main > .content-panel:first-child h1::before {
 
 /* Tables ------------------------------------------------------------------ */
 
+/* The <table> element doubles as the horizontal scroll container, so its inner
+   table grid is shrink-to-fit. Leaving the box at `width: 100%` made short
+   tables paint their header band and row rules only across the content width,
+   leaving an empty strip inside the bordered card. Hugging the content
+   (`max-content`, capped at the column width) keeps the card border, the
+   header band and the rules flush with each other. */
 .sl-markdown-content table {
 	display: block;
-	width: 100%;
+	width: max-content;
+	max-width: 100%;
 	overflow-x: auto;
 	border: 1px solid var(--ka-line);
 	border-radius: var(--ka-radius-md);
@@ -1055,6 +1062,12 @@ footer .meta {
 	background: var(--ka-teal);
 	color: #041713;
 	font-weight: 600;
+}
+
+/* In the light theme --ka-teal is a dark teal, so the dark label colour would
+   fall below AA against it; flip the label to white there. */
+:root[data-theme='light'] .sl-skip-link {
+	color: #ffffff;
 }
 
 /* ==========================================================================
@@ -2027,7 +2040,9 @@ main:has(.ka-landing) .sl-markdown-content {
 }
 
 .ka-chapter-index {
-	color: var(--ka-line-strong);
+	/* Decorative watermark numeral: --ka-line-strong is a border colour and
+	   fades out almost completely as text, so use the muted ink token. */
+	color: var(--ka-faint);
 	font-family: var(--ka-font-mono);
 	font-size: 1.7rem;
 	font-weight: 500;
