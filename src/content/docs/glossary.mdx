@@ -19,11 +19,11 @@ description: 按主题整理 Kernel Agent 领域的核心术语，包含英文�
 | 基线 | baseline | 用于对比的参照实现；必须固定，不能在迭代中被悄悄替换。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
 | 加速比 | speedup | 基线耗时除以候选耗时，或吞吐之比；报告时必须说明基线与测量条件。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
 | 编码者 | coder | KDA 中负责读代码、改 kernel、编译与测试的角色，默认由 Claude 承担。 | [KDA](/guide/kda/) |
-| 构建者 | builder | 循环中负责产出计划与代码的一方，Humanize 默认使用 Claude Code。 | [Humanize](/guide/humanize/) |
+| 构建者 | builder | 循环中负责产出计划与代码的一方；Humanize 1 默认使用 Claude Code，Humanize 2 可换任意受支持的 CLI。 | [Humanize](/guide/humanize/) |
 | 审查者 | reviewer | 在独立上下文中判断证据是否支持完成的一方；只有它可以宣布完成。 | [Humanize](/guide/humanize/) |
 | 验证者 | verifier | 对照验收标准复核证据的角色；在 KDA 中通常由 Codex 承担。 | [KDA](/guide/kda/) |
-| 计划合同 | plan contract | 开工前用两道理解度选择题确认人已看懂计划机制与架构的协议。 | [Humanize](/guide/humanize/) |
-| 判断工程 | judgement engineering | 设计谁来判断、看什么证据、何时停止的工程方法，而非改 prompt。 | [Humanize](/guide/humanize/) |
+| 计划合同 | plan contract | 开工前固定目标、验收标准、路径边界与分工，并用两道理解度选择题确认人已看懂计划的协议。 | [Humanize](/guide/humanize/) |
+| 判断工程 | judgement engineering | 设计谁来判断、看什么证据、何时停止的工程方法；核心是写/判分离，而非改 prompt。 | [Humanize](/guide/humanize/) |
 | 外部判定 | oracle | 独立于 builder 的判定来源，如人工、隐藏测试或更强参考实现。 | [Humanize](/guide/humanize/) |
 | 复盘 | postmortem | 对一次失败或成功循环的结构化回顾，记录原因、证据与改法。 | [Humanize](/guide/humanize/) |
 | 消融 | ablation | 逐一移除组件以测量其贡献的实验方法，如 RLCR、KernelWiki、profiling skill 的叠加。 | [Humanize](/guide/humanize/) |
@@ -63,7 +63,7 @@ description: 按主题整理 Kernel Agent 领域的核心术语，包含英文�
 | 术语 | 英文 | 解释 | 相关章节链接 |
 | --- | --- | --- | --- |
 | Kernel Design Agents | KDA | NVIDIA 与 MIT HAN Lab 相关团队开源的 Agent 写 CUDA kernel 工作流，含 Coder、Verifier 与两个 skill；团队隶属以官方为准。 | [KDA](/guide/kda/) |
-| Humanize | Humanize | 以写/判分离与判断工程为核心的 Agent 编码协议与工具集。 | [Humanize](/guide/humanize/) |
+| Humanize | Humanize | 以写/判分离（writer/judge separation）与判断工程为核心的 Agent 编码协议与工具集。 | [Humanize](/guide/humanize/) |
 | Humanize 2 | Humanize 2 / hmz | 把编排搬到独立运行时的新一代实现，flow 即 Python async 函数；仍在演进。 | [Humanize](/guide/humanize/) |
 | 知识库 | KernelWiki | KDA 的可检索领域知识库，汇总算子仓库、PR 与架构迁移约束。 | [KDA](/guide/kda/) |
 | 性能报告技能 | ncu-report | KDA 中把 NCU 分析顺序固化为六维框架的 skill。 | [KDA](/guide/kda/) |
@@ -79,16 +79,16 @@ description: 按主题整理 Kernel Agent 领域的核心术语，包含英文�
 | FlashInfer | FlashInfer | 面向 LLM 推理的高性能 kernel 库，也是竞赛与基准的重要来源。 | [资料库](/resources/) |
 | 混合专家 | MoE | Mixture of Experts，按 token 路由到部分专家计算的模型结构。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
 | 稀疏注意力 | DSA | DeepSeek Sparse Attention，竞赛中的注意力优化赛道之一。 | [KDA](/guide/kda/) |
-| 门控增量网络 | GDN | Gated Delta Net，竞赛中的线性注意力类赛道之一。 | [KDA](/guide/kda/) |
-| HOA | Humanize Olympiad Agents | Humanize 论文中的竞赛应用，报告在多项奥赛取得满分。 | [Humanize](/guide/humanize/) |
+| 门控 DeltaNet | Gated DeltaNet | 带门控遗忘机制的线性注意力网络，竞赛中的 GDN 赛道即其 prefill 算子。 | [KDA](/guide/kda/) |
+| HOA | Humanize Olympiad Agents | Humanfia 的竞赛 Agent 项目，覆盖数学、物理、化学、生物、编程与量子信息等奥赛题目。 | [Humanize](/guide/humanize/) |
 | Loom | Loom | Humanize 论文中的应用案例，报告 180 秒预算下搜索吞吐提升约 2.34×；这是吞吐结果，不代表映射质量更好。 | [Humanize](/guide/humanize/) |
 | PR 档案 | PR archive | BBuf skills 中整理的 118 份模型 PR 历史，用于冷启动检索。 | [Skills](/guide/skills/) |
 | 编译器栈 | TIRx | 基于 Apache TVM 的硬件原生 kernel DSL 与编译器栈，配套 agent harness。 | [资料库](/resources/) |
 | TIRx Harness | TIRx Harness | MLC 开源的编译器 harness：把知识库、编译期分析与基准服务接给 Agent。 | [自建 harness](/guide/beyond/) |
-| CAKE IR | CAKE IR | KDA v0.6 引入的 agent 原生中间表示，用来调优再编译成 PTX 的版本。 | [KDA](/guide/kda/) |
+| CAKE IR | CAKE IR | KDA v0.6 引入的 agent 原生中间表示，可先调优再转成 PTX；与 CuTe-DSL、CUDA C++ 并列的写法之一。 | [KDA](/guide/kda/) |
 | IKET | IKET | 用于暴露 CuTe kernel 内部流水线的诊断工具。 | [KDA](/guide/kda/) |
-| FlashInfer Trace | FlashInfer Trace | 描述 GPU kernel 定义与负载的标准 JSON 格式，KDA 社区 wishlist 用它提交任务。 | [资料库](/resources/) |
-| 对照系统 | K-Search | 与 KDA 同期被比较的另一个 kernel 生成系统，论文用它作为消融基线。 | [Humanize](/guide/humanize/) |
+| FlashInfer Trace | FlashInfer Trace | 一套用 JSON schema 描述 kernel 定义、workload、solution 与评测结果的公共格式；KDA wishlist 用它提交任务。 | [资料库](/resources/) |
+| 对照系统 | K-Search | Humanize 论文在 DSA indexer 消融中并列比较的另一个 LLM kernel 生成系统，同设置下报告 1.37×。 | [Humanize](/guide/humanize/) |
 | Blackwell | NVIDIA Blackwell | NVIDIA 架构代际，B200/B300 属此代，SM 编号为 sm_100 与 sm_103。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
 | CUDA | CUDA | NVIDIA 的并行计算平台与编程模型，本书 kernel 一律指其上的 GPU kernel。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
 
@@ -111,4 +111,4 @@ description: 按主题整理 Kernel Agent 领域的核心术语，包含英文�
 
 遇到不熟悉的缩写时，先在本页定位它属于“流程”“性能”还是“评测”，再点进对应章节看上下文。写报告或做分享时，建议同时写出术语的英文与适用条件，例如“在 B200、FP8、固定 shape 下报告 1.7×”，避免把一个条件下的数字推广成普遍结论。
 
-> 来源与版本：术语解释以本站各章与所列官方材料为基线，最后核对 2026-10-29。上游项目仍在快速演进，具体能力与数字以官方为准。完整链接见[资料库](/resources/)。
+> 来源与版本：术语解释以本站各章与所列官方材料为基线，最后核对 2026-10-29，v1.1 校订核对于 2026-10-30。上游项目仍在快速演进，具体能力与数字以官方为准。完整链接见[资料库](/resources/)。

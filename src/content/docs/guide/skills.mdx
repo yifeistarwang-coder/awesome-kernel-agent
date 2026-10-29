@@ -22,7 +22,7 @@ import Exercise from '../../../components/Exercise.astro';
 
 Agent 每次接到新任务，都要从零建立三样东西：任务所处的代码结构、领域里的隐含约束、以及“怎样才算验证通过”。这些信息往往散落在 README、PR 讨论、profiling 报告和资深工程师的脑子里。让 Agent 自己摸索并非不可能，但会重复支付冷启动成本，而且每次路径不同、结论不稳定。
 
-Skill 的作用不是替 Agent 思考，而是缩短它到达“可行动状态”的距离。它把隐性的判断变成显性的检查，把“我记得这个 fusion 只在特定 dtype 下成立”变成一条可检索、可验证的规则。和普通文档相比，skill 更强调可执行性：
+Skill 的作用不是替 Agent 思考，而是缩短它到达“可行动状态”的距离。它把隐性的判断变成显性的检查，把“我记得这个 fusion 只在特定 dtype 下成立”变成一条可检索、可验证的规则。Humanize 的 DSA indexer 消融给了一个直接证据：同一任务、48 小时预算下，只用 RLCR 是 3.71×，加入 KernelWiki 后 6.14×，再加入 profiling skill 后 8.58×（见 [Humanize 章](/guide/humanize/)）。这三个数字不能拆开外推，但它说明：判断流程不变时，注入正确的领域知识与 profiling 顺序，能把 Agent 从盲目搜索推向有依据的优化。和普通文档相比，skill 更强调可执行性：
 
 | 形态 | 主要回答 | 局限 |
 | --- | --- | --- |
@@ -40,13 +40,15 @@ KDA 把两个 skill 放进了主流程：KernelWiki 提供领域知识，ncu-rep
 
 KernelWiki 把算子开发仓库、历史 PR 与架构迁移约束整理成可检索的知识库。例如从 Hopper 迁移到 Blackwell 时，哪些指令、内存层级或布局假设会失效，哪些写法需要重写。它的价值在于让 Agent 在提出候选方案之前，先看到“别人已经踩过的坑”和“当前硬件的约束”。
 
-一个可用的 KernelWiki 至少要有三个特征：条目有来源（仓库、PR、文档或实验记录），结论有适用条件（硬件代际、dtype、shape、库版本），检索有入口（按算子、按架构、按错误信息）。缺少适用条件的“经验”很容易变成过时教条。
+一个可用的 KernelWiki 至少要有三个特征：条目有来源（仓库、PR、文档或实验记录），结论有适用条件（硬件代际、dtype、shape、库版本），检索有入口（按算子、按架构、按技术或症状）。缺少适用条件的“经验”很容易变成过时教条。
+
+KernelWiki 的仓库根目录本身就是 skill 目录，克隆到 `~/.claude/skills/` 即可被识别；检索入口覆盖按架构、问题、技术、症状与 kernel 类型的索引，并标注了证据边界（上游 PR 语料截至 2026-05-20，文档与榜单快照核验至 2026-08-18）。这些日期不是装饰：它们告诉你哪些结论可以直接引用，哪些需要回到当前仓库重新确认。
 
 在 KDA 仓库里，KernelWiki 是以 pinned submodule（固定版本的 Git 子模块）引入的，原始材料以 MIT 许可分发，个别受限的 CuTe DSL 制品不随仓库分发。官方也提醒：直接克隆上游仓库可能拿到受额外条款约束的制品快照。这是「知识要可复现，但分发要合规」的一个具体范例。
 
 ### ncu-report：把看报告的顺序固化
 
-ncu-report 把 NVIDIA Nsight Compute 的分析顺序固化为六个维度，避免 Agent 一看到某个指标就下结论。公开解读中常见的六维是：
+ncu-report 把 NVIDIA Nsight Compute 的分析顺序固化为六个维度，避免 Agent 一看到某个指标就下结论。六个维度是：
 
 | 维度 | 看什么 | 常见误判 |
 | --- | --- | --- |
@@ -65,20 +67,20 @@ ncu-report 把 NVIDIA Nsight Compute 的分析顺序固化为六个维度，避�
 
 ## BBuf 的 AI Infra skills
 
-BBuf 的 AI-Infra-Auto-Driven-SKILLS 仓库把一线 Infra 工作中反复用到的上下文整理成 skill。截至 2026-10-29，`skills/` 目录可见 11 个条目，覆盖 serving 基准、容量规划、profiling 分析、流水线分析、层追踪、模型优化、代码 review 与事故分诊等方向；具体清单以仓库为准。
+BBuf 的 AI-Infra-Auto-Driven-SKILLS 仓库把一线 Infra 工作中反复用到的上下文整理成 skill。截至 2026-10-29，仓库列出 11 个 skill，覆盖 serving 基准、容量规划、profiling 分析、流水线分析、层追踪、模型优化、代码 review 与事故分诊等方向；其中 Day-0 支持 skill 位于 `model-optimization/` 子目录。具体清单以仓库为准。
 
 | skill 目录 | 作用 |
 | --- | --- |
 | `llm-serving-auto-benchmark` | serving 的自动化基准，帮你快速得到可比较的延迟/吞吐口径 |
-| `llm-serving-capacity-planner` | 容量规划：从负载与硬件推算部署规模 |
-| `llm-torch-profiler-analysis` | torch profiler 结果的分析方法 |
-| `torch-profiler-layer-track` | 按层追踪，把时间归因到具体模型层 |
-| `llm-pipeline-analysis` | 推理流水线的阶段划分与瓶颈定位 |
-| `model-optimization` | 模型侧的优化路径与 Day-0 支持经验 |
-| `model-architecture-diagram` | 生成模型结构图，帮助快速对齐算子与模块 |
-| `model-compute-simulation` | 模型算力/显存占用的估算 |
-| `sglang-humanize-review` | 用 Humanize 式评审流程检查 SGLang 改动 |
-| `sglang-prod-incident-triage` | 线上事故分诊 |
+| `llm-serving-capacity-planner` | 从 SGLang/vLLM 日志解释启动显存、KV cache 预算、请求容量与 OOM 压力 |
+| `llm-torch-profiler-analysis` | 读取 torch profiler trace，输出 kernel、重叠与融合机会表 |
+| `torch-profiler-layer-track` | 为 trace 补层号与紧凑 GPU 泳道，便于在 Perfetto 中按层导航 |
+| `llm-pipeline-analysis` | 把 trace 拆成前向、层与 kernel，并用锚点与 Perfetto 区间定位 |
+| `model-optimization/sglang-model-day0-support` | 把新模型架构转成 SGLang Day-0 支持的 PR DAG、验证矩阵与发布锁 |
+| `model-architecture-diagram` | 检索并返回公开的模型结构图，帮助快速对齐算子与模块 |
+| `model-compute-simulation` | 估算 serving shape 下的算子形状、FLOPs 与 MFU，或把 kernel 映射回算子 |
+| `sglang-humanize-review` | 按维护者方式评审 SGLang PR，依据完整的人工 review 语料 |
+| `sglang-prod-incident-triage` | 把队列增长、超时、错误输出或卡死转成复现与下一步调试 |
 | `sglang-explainer-video` | 把讲解整理成视频素材 |
 
 与 kernel 优化最相关的，是下面几类“补 context”的工作。
@@ -87,7 +89,7 @@ BBuf 的 AI-Infra-Auto-Driven-SKILLS 仓库把一线 Infra 工作中反复用到
 2. **kernel 与 Python 行的映射**。Profiling 看到的是 kernel 名，代码里写的是 `torch.nn` 调用或自定义 op。Skill 提供一个从 kernel 回溯到 Python 调用点的路径，例如用 profiler 的调用栈、算子注册表或命名约定，避免 Agent 改错层。
 3. **fusion 的 dtype 与 shape 前提**。两个算子能融合，不代表所有输入都成立：dtype 提升规则、布局、对齐、边界 shape、数值精度都可能让融合失效。Skill 要把“成立条件”和“回退路径”写清楚，而不是只给一个成功案例。
 4. **上游 PR 检索**。在动手前先查上游是否已有类似实现或讨论，可以避免重复劳动，也能借到测试与基准。Skill 应给出检索关键词、仓库范围、如何判断“可复用”与“仅相关”。
-5. **历史 PR 档案**。仓库里的 `model-pr-optimization-history` 整理了 **118 份模型 PR 历史**，覆盖 SGLang、vLLM、TensorRT-LLM 与 TokenSpeed 四个服务框架，按模型族分目录，并提供 `scripts/query.py` 检索（支持按框架、模型、关键词与中英文筛选）。它的价值不是让 Agent 背答案，而是让它在遇到相似算子时快速定位先例，再判断哪些结论仍然适用——该 skill 也明确声明，这些档案自带采集日期，不构成对当前分支的认证。
+5. **历史 PR 档案**。仓库里的 `model-pr-optimization-history` 整理了 **118 份模型 PR 历史**，覆盖 SGLang、vLLM、TensorRT-LLM 与 TokenSpeed 四个服务框架，按模型族分目录，并提供 `scripts/query.py` 检索（支持按框架、模型、关键词与中英文筛选）。它的价值不是让 Agent 背答案，而是让它在遇到相似算子时快速定位先例，再判断哪些结论仍然适用——该仓库也明确说明，历史 PR 证据保留审计日期，刷新源码不等于重跑 GPU 测试，引用前要回到当前分支确认。
 
 <Aside type="tip" title="Skill 与 RAG 的区别">
 RAG 解决“找得到”，skill 还要解决“找到之后怎么做、做完怎么验”。只有检索片段、没有步骤与验收，Agent 仍然可能停在“我看过了”。
@@ -147,6 +149,19 @@ runs/<date>/summary.md，包含命令、指标、假设、结论与下一步。
 
 Skill 也需要评估。可以看四个指标：触发是否准确（该用的时候用、不该用的时候不打扰）、任务成功率、额外消耗的 token 与时间、过期条目的比例。最实用的评估方法是做一次冷启动对照：同一任务，一组 Agent 有 skill，一组没有，比较首次可用方案的出现时间与 reviewer 拦截率。
 
+## 常见误区
+
+即使结构写对了，落地时仍会踩到几个与“写 skill”本身无关的坑：
+
+| 误区 | 为什么容易发生 | 修正 |
+| --- | --- | --- |
+| 把 skill 当成更大的 prompt | 一次性把所有背景塞进上下文，短期看似省事 | 按触发条件拆成多个小 skill，只加载当前决策需要的那一个 |
+| 追求“一个 skill 管所有情况” | 希望减少维护数量，却让触发条件与步骤互相冲突 | 一个 skill 只解决一个决策，把例外写成回退路径或拆分 |
+| 装进目录就以为会生效 | 模型只看到名称与描述，描述不像触发信号就会漏触发 | 用真实任务做冷启动对照，统计触发率与误触发 |
+| 把 PR 档案当当前事实 | 档案有采集日期，上游分支已经变化 | 引用前回到当前 commit 复核，过期条目标记而不是照抄 |
+
+这几条的共同点是：skill 的效果取决于“何时被加载”和“加载后能否验证”，而不是文件写了多少。维护时优先修触发条件与验证段，它们比正文措辞更能改变 Agent 的行为。
+
 ## 本章自检
 
 - [ ] 我能解释 skill 与普通文档、prompt、RAG 的区别。
@@ -155,8 +170,9 @@ Skill 也需要评估。可以看四个指标：触发是否准确（该用的�
 - [ ] 我能说出 BBuf 仓库里 skills 目录的条目构成。
 - [ ] 我能写出一个 skill 的六个组成部分，并为每部分给出例子。
 - [ ] 我能指出至少三个 skill 反模式及其修正方式。
+- [ ] 我能说出 KernelWiki 的证据边界，以及 skill 落地时的至少两个常见误区。
 
-## 练习
+### 练习
 
 <Exercise level="L3" title="写一个 200 行以内的 skill" time="60 分钟">
 
@@ -189,15 +205,15 @@ Skill 也需要评估。可以看四个指标：触发是否准确（该用的�
 
 ## 延伸阅读
 
-- KDA 仓库：[链接](https://github.com/NVlabs/kda)
-- KDA 主页：[链接](https://nvlabs.github.io/kda)
-- ncu-report-skill：[链接](https://github.com/mit-han-lab/ncu-report-skill)
-- KernelWiki：[链接](https://github.com/mit-han-lab/KernelWiki)
-- BBuf AI-Infra-Auto-Driven-SKILLS：[链接](https://github.com/BBuf/AI-Infra-Auto-Driven-SKILLS)
-- Skills 目录：[链接](https://github.com/BBuf/AI-Infra-Auto-Driven-SKILLS/tree/main/skills)
-- NVIDIA Nsight Compute 文档：[链接](https://docs.nvidia.com/nsight-compute/NsightCompute/index.html)
-- 上一章回顾：[Humanize：让 Agent 真正做完](/guide/humanize/)
+- [KDA 仓库](https://github.com/NVlabs/kda)：任务合同、最小流程与两个 skill 的一手实现。
+- [KDA 主页](https://nvlabs.github.io/kda)：版本说明、wishlist 与竞赛结果入口。
+- [ncu-report-skill](https://github.com/mit-han-lab/ncu-report-skill)：六维 profiling 工作流、诊断手册与报告解析脚本。
+- [KernelWiki](https://github.com/mit-han-lab/KernelWiki)：Blackwell/Hopper kernel 知识库、检索脚本与证据边界说明。
+- [BBuf AI-Infra-Auto-Driven-SKILLS](https://github.com/BBuf/AI-Infra-Auto-Driven-SKILLS)：serving、profiling 与 PR 检索等 Infra 经验的 skill 集合。
+- [Skills 目录](https://github.com/BBuf/AI-Infra-Auto-Driven-SKILLS/tree/main/skills)：11 个 skill 的源文件；118 份 PR 档案在同仓库的 `model-pr-optimization-history/`。
+- [NVIDIA Nsight Compute 文档](https://docs.nvidia.com/nsight-compute/NsightCompute/index.html)：ncu 指标、section 与命令行参数的官方参考。
+- 上一章回顾：[Humanize：让 Agent 真正做完](/guide/humanize/)，看写/判分离如何为 skill 提供验收接口。
 
 下一章 [自建 harness](/guide/beyond/) 会把前面几章拼起来：任务规格、工具、循环、验证、记录与预算，如何组成一个属于你的最小系统。
 
-> 来源与版本：本章事实以 KDA 公开材料、BBuf 仓库与 NVIDIA Nsight Compute 文档为基线，最后核对 2026-10-29。仓库条目与 skill 名称可能变化，以官方为准。完整链接见[资料库](/resources/)。
+> 来源与版本：本章事实以 KDA 公开材料、BBuf 仓库与 NVIDIA Nsight Compute 文档为基线，最后核对 2026-10-29；KernelWiki 的证据边界补充核对于 2026-10-30。仓库条目与 skill 名称可能变化，以官方为准。完整链接见[资料库](/resources/)。

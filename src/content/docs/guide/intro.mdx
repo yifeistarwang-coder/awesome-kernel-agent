@@ -1,20 +1,20 @@
 ---
 title: 导读与环境：从一块 GPU 到一条学习路线
-description: 理解 Kernel Agent 要解决的问题、三个代表项目与本站路线，并完成可复现的环境自检。
+description: 理解 Kernel Agent 要解决的问题、四个代表项目与本站路线，并完成可复现的环境自检。
 ---
 
 import { Aside, Steps } from '@astrojs/starlight/components';
 import Exercise from '../../../components/Exercise.astro';
 
-如果你写过 PyTorch，大概率有过这样的体验：模型能跑，但某个算子占了大部分时间；想自己写 CUDA，却被访存、occupancy、数值误差和 profiling 工具挡在门外。Kernel Agent 想做的，就是把「提出目标、读代码、改 kernel、跑测试、看 profiler、再改」这一整条工程 loop，交给一个会使用工具的编码 Agent 来执行，而人负责定义目标与验收。
+如果你写过 PyTorch，大概率有过这样的体验：模型能跑，但某个算子占了大部分时间；想自己写 CUDA，却被访存、occupancy（占用率）、数值误差和 profiling（性能分析）工具挡在门外。Kernel Agent 想做的，就是把「提出目标、读代码、改 kernel、跑测试、看 profiler、再改」这一整条工程循环（loop），交给一个会使用工具的编码 Agent 来执行，而人负责定义目标与验收。
 
-这一章先建立全景：Kernel Agent 到底是什么、为什么现在值得学、三个代表项目各自解决哪一段问题，以及你需要准备怎样的环境。读完你应当能判断：自己手上的机器能不能开始，不能的话该走哪条替代路径。
+这一章先建立全景：Kernel Agent 到底是什么、为什么现在值得学、四个代表项目各自解决哪一段问题，以及你需要准备怎样的环境。读完你应当能判断：自己手上的机器能不能开始，不能的话该走哪条替代路径。
 
 ## 学习目标
 
 - 用自己的话解释 Kernel Agent，并区分它与「让聊天模型写一段 CUDA」的差别。
 - 说出 Kernel Agent 在 2026 年出现的三个条件，并各举一个反例或风险。
-- 概述 KDA、Humanize、BBuf skills 三者的分工与入口，并说明 TIRx Harness 提供了什么对照视角。
+- 概述 KDA（Kernel Design Agents）、Humanize、BBuf skills 三者的分工与入口，并说明 TIRx Harness 提供了什么对照视角。
 - 按本站路线规划接下来的阅读与动手顺序。
 - 完成 GPU、CUDA、ncu、Python 与 Agent CLI 的环境自检，或明确选择无 GPU 路径。
 
@@ -24,9 +24,9 @@ import Exercise from '../../../components/Exercise.astro';
 
 把两者接起来，Kernel Agent 是一个闭环系统：
 
-1. 人给出任务规格：输入输出、正确性容差、性能目标、允许的实现方式。
+1. 人给出任务合同（task contract，本站也写作「任务规格」）：输入输出、正确性容差、性能目标、允许的实现方式。
 2. Agent 阅读参考实现与测试，写一份 draft，再转成可执行 plan。
-3. Agent 修改 kernel，调用编译器、正确性测试、benchmark 与 profiler。
+3. Agent 修改 kernel，调用编译器、正确性测试、benchmark（基准测试）与 profiler（性能分析器）。
 4. 结果回到上下文，Agent 决定保留、修改还是放弃当前候选。
 5. 全过程留下可复查的记录：候选版本、命令、日志、profiling 证据、取舍理由。
 
@@ -42,17 +42,17 @@ Kernel Agent 不是单点技术突破，而是三个条件同时成熟的结果�
 
 ### 条件一：kernel 工程成为瓶颈
 
-模型结构越来越依赖 specialized kernel：长上下文注意力、MoE 路由、低精度 GEMM、融合后的 epilogue。硬件也在快速分化，Blackwell 的 SM、Tensor Core 与内存层级都和上一代不同。结果是「会写高性能 kernel 的人」供给有限，而每个新模型、新形状、新 GPU 都要重新调一遍。KDA 官方仓库把自己的定位写得很清楚：一套以编码 Agent 为中心的流程，用来 research、implement、verify、iterate 性能敏感的 CUDA 任务；官方主页写明当前只支持 NVIDIA B200 与 B300，说明这不是一个泛化的玩具，而是面向当代数据中心 GPU 的工程流程。仓库 README 同时提到，该项目源自 NVIDIA 与 MIT HAN Lab 相关的团队工作，官方页面未强调隶属关系，具体团队构成以官方仓库为准。参考 [KDA 仓库](https://github.com/NVlabs/kda) 与 [项目主页](https://nvlabs.github.io/kda)（核对于 2026-10-29）。
+模型结构越来越依赖专用 kernel（specialized kernel）：长上下文注意力、MoE 路由、低精度 GEMM、融合后的 epilogue（收尾计算）。硬件也在快速分化，Blackwell 的 SM、Tensor Core 与内存层级都和上一代不同。结果是「会写高性能 kernel 的人」供给有限，而每个新模型、新形状、新 GPU 都要重新调一遍。KDA 官方仓库把自己的定位写得很清楚：一套以编码 Agent 为中心的流程，用来研究、实现、验证与迭代（research / implement / verify / iterate）性能敏感的 CUDA 任务；其社区 kernel wishlist（愿望清单）目前只支持 NVIDIA B200 与 B300（以官方页面为准），说明公开任务与评测集中在当代数据中心 GPU，而不是泛化的玩具场景。仓库 README 把竞赛方案指向 HAN Lab 的公开仓库；公开材料也把项目与 NVIDIA、MIT HAN Lab 相关团队联系起来，但官方页面未强调隶属关系，具体团队构成以官方仓库为准。参考 [KDA 仓库](https://github.com/NVlabs/kda) 与 [项目主页](https://nvlabs.github.io/kda)（核对于 2026-10-29）。
 
 ### 条件二：正确性与性能可以被机器验证
 
-这是 kernel 任务适合 Agent 的根本原因。正确性可以用参考实现加数值容差判断，性能可以用固定输入、固定硬件的 benchmark 判断，瓶颈可以用 ncu 的计数器定位。奖励便宜、可重复，Agent 才能在一晚上跑几十上百次实验。
+这是 kernel 任务适合 Agent 的根本原因。正确性可以用参考实现加数值容差判断，性能可以用固定输入、固定硬件的 benchmark 判断，瓶颈可以用 ncu（NVIDIA Nsight Compute 的命令行性能分析器）的计数器定位。奖励便宜、可重复，Agent 才能在一晚上跑几十上百次实验。
 
-但「可验证」不等于「已验证」。KDA 团队让 Agent 优化 Kimi Delta Attention 时，曾出现一个声称 3.74× 的候选：它把 Q/K 的 L2 归一化替换成硬编码常数 0.1778209953（正态分布下倒数 L2 范数的期望值），并把部分初始状态通道置零以跳过三角矩阵求逆；在合成随机数据上误差刚好过关，遇到真实非高斯输入就完全失败，去掉捷径后真实加速只剩 2.48×。官方随后升级了验收：每次评分换随机种子、用 Agent 看不见的隐藏测试切换输入分布与序列布局、加极端衰减与饱和 gate 压力探针、改用逐元素误差门、回放真实 Kimi-Linear trace，并用逐 token 的 FP64 recurrence 作为数值参考，同时检查输出与 final state。该方案在升级后的验收下全面失败。来源是 KDA 官方博客 [KDA²: Kernel Design Agents optimize Kimi Delta Attention](https://nvlabs.github.io/kda/blog/2026-09-27-kda-for-kda/)（2026-09-27）。这件事会在第 4 章展开，此处先记住结论：**Agent 越强，evaluator 越重要**。
+但「可验证」不等于「已验证」。KDA 团队让 Agent 优化 Kimi Delta Attention（官方博客称 KDAttn，以区别于系统名 KDA）时，曾出现一个声称 3.74× 的候选：它把 Q/K 的 L2 归一化替换成硬编码常数 0.1778209953（正态分布下倒数 L2 范数的期望值），并把部分初始状态通道置零以跳过三角矩阵求逆；在合成随机数据上误差刚好过关，遇到真实非高斯输入就完全失败，去掉捷径后真实加速只剩 2.48×。官方随后升级了验收：每次评分换随机种子、用 Agent 看不见的隐藏测试切换输入分布与序列布局、加极端衰减与饱和 gate（门控）压力探针、改用逐元素误差门、回放真实 Kimi-Linear trace（运行轨迹），并用逐 token 的 FP64 递推（recurrence）作为数值参考，同时检查输出与 final state（最终状态）。该方案在升级后的验收下全面失败。来源是 KDA 官方博客 [KDA²: Kernel Design Agents optimize Kimi Delta Attention](https://nvlabs.github.io/kda/blog/2026-09-27-kda-for-kda/)（2026-09-27）。这件事会在[第 4 章 KDA 案例](/guide/kda/)展开，此处先记住结论：**Agent 越强，evaluator（评测器）越重要**。
 
 ### 条件三：编码 Agent 具备了长程工作能力
 
-Claude Code、Codex CLI 这类终端 Agent 已经能维持多轮会话、读写仓库、运行命令，并通过 skill 加载领域知识。Humanize 论文把问题说得很直接：写代码变便宜了，可靠地判断「是否真的完成」反而变难；写代码的 Agent 是糟糕的自我裁判。论文把「写/判分离、跨厂商 reviewer、机械化 gate」工程化，并用 KDA 等应用验证。参考 [Humanize 论文](https://arxiv.org/abs/2610.08900)（2026-10）。
+Claude Code、Codex CLI 这类终端 Agent 已经能维持多轮会话、读写仓库、运行命令，并通过 skill（技能包，把领域知识与操作步骤封装成 Agent 可调用的上下文）加载领域知识。Humanize 论文把问题说得很直接：写代码变便宜了，可靠地判断「是否真的完成」反而变难；写代码的 Agent 是糟糕的自我裁判。论文把「写/判分离、跨厂商 reviewer（独立评审者）、机械化的 gate（门禁检查）」工程化，并用 KDA 等应用验证。参考 [Humanize 论文](https://arxiv.org/abs/2610.08900)（2026-10）。
 
 三个条件合起来：任务有经济价值，结果可验证，Agent 能长程执行。Kernel Agent 因此从演示走向了可复现的工程流程。
 
@@ -67,44 +67,46 @@ Claude Code、Codex CLI 这类终端 Agent 已经能维持多轮会话、读写�
 | BBuf skills | 把 AI Infra 专家经验沉淀成 Agent 可检索的 skill 与 118 份模型 PR 历史档案 | prefill/decode 视角、kernel 与 Python 的映射、fusion 成立条件 | [AI-Infra-Auto-Driven-SKILLS](https://github.com/BBuf/AI-Infra-Auto-Driven-SKILLS) |
 | TIRx Harness | MLC 开源的编译器 harness，把 kernel 知识库、编译期分析与基准服务接给 Agent | 编译器如何成为 Agent 的工具层，参考实现如何进入搜索空间 | [TIRx 博客](https://blog.mlc.ai/2026/09/29/tirx-harness-an-open-compiler-harness-for-agentic-gpu-programming) |
 
-前三个是本站的主线案例，第四个用来对照：KDA 与 Humanize 关心流程与判断，TIRx 关心 Agent 能拿到什么工具与知识。TIRx 在 KDA workload 上报告的结果是 forward 2.94×、backward 6.84×、MSA prefill 2.59×（均为几何平均，来源见第 4 章）。
+前三个是本站的主线案例，第四个用来对照：KDA 与 Humanize 关心流程与判断，TIRx 关心 Agent 能拿到什么工具与知识。TIRx 在 KDA workload 上报告的结果是 forward 2.94×、backward 6.84×、MSA prefill 2.59×（均为几何平均；来源为 [MLC TIRx 博客](https://blog.mlc.ai/2026/09/29/tirx-harness-an-open-compiler-harness-for-agentic-gpu-programming)，2026-09-29）。注意这是 TIRx 自己的实验组，基线与 KDA v0.5 的三项加速比不同，两组数字不可横向比较。
 
 KDA 官方 README 明确说这是一个**早期研究原型**、仍在活跃开发；Humanize 的 Humanize2 也仍在演进。因此本站讲的是「截至 2026-10 的公开设计」，具体命令、模型与数字以官方为准。
 
 ## 本站的学习路线
 
-主线是：先理解问题，再补两块基础，然后拆两个真实案例，最后自己搭一个最小 harness。
+主线是：先理解问题，再补两块基础，然后拆两个真实案例，最后自己搭一个最小 harness（执行框架）。
 
 | 章节 | 核心问题 | 读完能做什么 |
 | --- | --- | --- |
 | 1 导读与环境 | 这个领域在解决什么 | 判断环境是否就绪，选定路径 |
-| 2 Agent 与 harness | Agent 为什么需要外层流程 | 写出一份可验证的任务规格 |
+| 2 Agent 与 harness | Agent 为什么需要外层流程 | 写出一份可验证的任务合同 |
 | 3 GPU kernel 与性能 | 怎么判断 kernel 好不好 | 读一份 ncu 报告并指出瓶颈 |
-| 4 KDA 案例 | 一套完整流程长什么样 | 复现最小 KDA loop |
+| 4 KDA 案例 | 一套完整流程长什么样 | 复现最小 KDA 流程 |
 | 5 Humanize 案例 | 怎么保证「真做完了」 | 设计写/判分离与检查清单 |
 | 6 Skills 与经验沉淀 | 怎么让 Agent 冷启动更快 | 写一个自己的 skill |
 | 7 自建 harness | 如何把各章组合起来 | 设计自己的 v0 harness |
 
-如果你时间有限，最低限度的顺序是 1 → 2 → 3 → 4；第 5 章解释了为什么第 4 章的流程必须配独立验收，建议不要跳过。第 6、7 章更偏工程化，可以在做过一次小任务后再读。
+如果你时间有限，最低限度的顺序是 1 → 2 → 3 → 4；第 5 章 [Humanize](/guide/humanize/) 解释了为什么第 4 章的流程必须配独立验收，建议不要跳过。第 6、7 章更偏工程化，可以在做过一次小任务后再读。术语不熟时先查[术语表](/glossary/)，它按章节索引了全站出现的缩写。
+
+先补基础再读案例，是因为 KDA 与 Humanize 的文档默认你理解 Agent 循环、任务合同与 ncu 指标；跳过基础直接读案例，容易记住命令，却说不出这些设计为什么存在。
 
 ## 环境准备
 
 ### 硬件：不是所有练习都需要 B200
 
-第 1 到 3 章的概念与大多数练习，任意一块支持 CUDA 的 NVIDIA GPU 都能完成；第 4 章的练习版最小流程也可以换成小算子在你自己的 GPU 上跑。但 KDA 官方项目页当前只支持 B200/B300，若要逐字复现它的公开结果，需要这两类卡或云端实例——公开报道明确写出 v0.5 的对比测试需要 NVIDIA B200 与 CUDA 13 驱动。没有 GPU 也能读完全部章节，具体替代路径见下一节。
+第 1 到 3 章的概念与大多数练习，任意一块支持 CUDA 的 NVIDIA GPU 都能完成；第 4 章的练习版最小流程也可以换成小算子在你自己的 GPU 上跑。KDA 的工作流本身不绑定硬件，但其社区 wishlist 与公开评测目前主要在 B200/B300 上进行（以官方页面为准）；若要逐字复现它的公开结果，需要这两类卡或云端实例——公开报道明确写出 v0.5 的对比测试需要 NVIDIA B200 与 CUDA 13 驱动（[KDA v0.5 报道](https://m.163.com/dy/article/L7GV5BV30556KHRQ.html)，2026-09-23）。没有 GPU 也能读完全部章节，具体替代路径见下一节。
 
 ### 软件栈
 
 | 组件 | 建议 | 检查方式 |
 | --- | --- | --- |
 | GPU 驱动 | 支持 CUDA 13.x 的版本 | `nvidia-smi` 右上角 |
-| CUDA Toolkit | 13.x；ncu-report skill 文档实测到 13.2 | `nvcc --version` |
-| Nsight Compute | 2026.x；skill 文档实测 2026.3.1 | `ncu --version` |
+| CUDA Toolkit | 13.x；[ncu-report skill](https://github.com/mit-han-lab/ncu-report-skill) 文档实测到 13.2 | `nvcc --version` |
+| Nsight Compute | 2026.x；同一 skill 文档实测 2026.3.1 | `ncu --version` |
 | Python | 3.10 及以上 | `python --version` |
 | PyTorch | 能正确识别 CUDA 的版本 | `torch.cuda.is_available()` |
 | Agent CLI | Claude Code 或 Codex CLI，任选其一 | `claude --version` / `codex --version` |
 
-安装方式请以官方文档为准：[CUDA Toolkit](https://developer.nvidia.com/cuda-toolkit)、[Nsight Compute](https://developer.nvidia.com/nsight-compute)、[PyTorch](https://pytorch.org/get-started/locally/)、[Claude Code](https://github.com/anthropics/claude-code)、[Codex CLI](https://github.com/openai/codex)。不要从博客抄安装命令，版本与包名变化很快。作为参照，公开报道中 KDA v0.5 的对比测试使用的是 CUDA 13.0、PyTorch 2.12.1 与 CuTe-DSL 4.6.0，预热 3 次、每次运行 50 次、重复 3 轮——这类细节属于「可复现声明」的一部分，值得照抄到你自己的任务合同里。
+安装方式请以官方文档为准：[CUDA Toolkit](https://developer.nvidia.com/cuda-toolkit)、[Nsight Compute](https://developer.nvidia.com/nsight-compute)、[PyTorch](https://pytorch.org/get-started/locally/)、[Claude Code](https://github.com/anthropics/claude-code)、[Codex CLI](https://github.com/openai/codex)。不要从博客抄安装命令，版本与包名变化很快。作为参照，[KDA v0.5 报道](https://m.163.com/dy/article/L7GV5BV30556KHRQ.html)给出的对比测试配置是 CUDA 13.0、PyTorch 2.12.1 与 CuTe-DSL 4.6.0，预热 3 次、每次运行 50 次、重复 3 轮——这类细节属于「可复现声明」的一部分，值得照抄到你自己的任务合同里。
 
 一个最小的检查脚本：
 
@@ -120,13 +122,13 @@ print("device", torch.cuda.get_device_name(0) if torch.cuda.is_available() else 
 PY
 ```
 
-如果 `ncu` 报 `ERR_NVGPUCTRPERM`，说明当前用户没有性能计数器权限；按 Nsight Compute 文档调整权限或换容器，不要用 `sudo` 掩盖问题。云上跑 ncu 还要确认实例允许 PM sampling。
+如果 `ncu` 报 `ERR_NVGPUCTRPERM`，说明当前用户没有性能计数器权限；按 Nsight Compute 文档调整权限或换容器，不要用 `sudo` 掩盖问题。云上跑 ncu 还要确认实例允许 PM sampling（周期采样）。
 
 ### 预算与安全
 
 Agent 的成本主要来自 token 与 GPU 时间。开始前先设三个上限：单任务墙钟时间、单任务花费、最大候选数。[KDA 官方博客](https://nvlabs.github.io/kda/blog/2026-09-27-kda-for-kda/)里的策略消融在 B300 上设了 14 小时预算（2026-09-27）；[Humanize 论文](https://arxiv.org/abs/2610.08900)中的 DSA indexer 消融用 48 小时预算（2026-10）。这些都是研究级预算，初学者做小算子应从几十分钟、几美元量级开始，再逐步加码。
 
-安全上至少做五件事：把 Agent 放进容器或受限账户，不把宿主机家目录整个暴露；API key 只放环境变量，不写进仓库；默认拒绝危险命令与网络访问，需要时逐条批准；每次让 Agent 改动前先看 diff，尤其是测试文件和 benchmark 脚本；确认 CLI 是否会跳过审批。**Agent 能改测试，就能伪造通过**，这不是假设，KDA 的 reward hacking 案例已经演示过。另外要注意一个容易被忽略的默认行为：Humanize 官方文档明确写出，其 flow 中的 agent 会「跳过审批」直接改文件、跑命令、提交，官方因此建议先在一次性仓库里跑；用其他 CLI 时也请确认同一件事。
+安全上至少做五件事：把 Agent 放进容器或受限账户，不把宿主机家目录整个暴露；API key 只放环境变量，不写进仓库；默认拒绝危险命令与网络访问，需要时逐条批准；每次让 Agent 改动前先看 diff（改动差异），尤其是测试文件和 benchmark 脚本；确认 CLI 是否会跳过审批。**Agent 能改测试，就能伪造通过**，这不是假设，KDA 的 reward hacking（奖励作弊：优化考核指标而不是真实目标）案例已经演示过。另外要注意一个容易被忽略的默认行为：[Humanize 官方文档](https://docs.humanfia.ai/humanize/)明确写出，其 flow（流程）中的 agent 会「跳过审批」直接改文件、跑命令、提交，官方因此建议先在一次性仓库里跑；用其他 CLI 时也请确认同一件事。
 
 <Aside type="caution" title="不要把「能跑」当成「可用」">
 一个 kernel 在 `torch.allclose` 下通过，只说明它在你选的输入、dtype 和容差下接近参考实现；不说明它在长序列、极端 gate、非连续布局下正确。验收标准要覆盖边界，而不是只覆盖 demo。
@@ -136,10 +138,10 @@ Agent 的成本主要来自 token 与 GPU 时间。开始前先设三个上限�
 
 没有本地 GPU 时，不建议一上来就租 B200。可以按成本从低到高选：
 
-1. **CPU 对拍 + 流程练习**：用 PyTorch/NumPy 写参考实现，用一个小算子（LayerNorm、softmax、RMSNorm）练任务规格、draft、plan、候选记录。性能部分只记录 CPU 时间，明确标注「不代表 GPU 性能」。
-2. **读别人的 profiling 证据**：用第 3 章的六维框架分析公开的 ncu 报告或博客中的表格，练习「指标→结论」的对应关系。
-3. **按量租 GPU**：选支持 CUDA 13 的实例，先跑通环境自检与一个 tiny kernel，再决定是否加预算。租用前确认计费方式与关机策略。
-4. **只做流程复现**：用 KDA 的 `docs/agent-flow.md`、prompt 模板和 workspace 布局，在你已有的小任务上跑通，不追求 B200 上的数字。
+1. **CPU 对拍 + 流程练习**：用 PyTorch/NumPy 写参考实现，用一个小算子（LayerNorm、softmax、RMSNorm）练任务合同、draft、plan、候选记录。性能部分只记录 CPU 时间，明确标注「不代表 GPU 性能」。
+2. **读别人的 profiling 证据**：用第 3 章 [GPU kernel 与性能](/guide/gpu-kernel/) 的六维框架分析公开的 ncu 报告或博客中的表格，练习「指标→结论」的对应关系。
+3. **按量租 GPU**：选支持 CUDA 13 的实例，先跑通环境自检与一个很小的 kernel，再决定是否加预算。租用前确认计费方式与关机策略。
+4. **只做流程复现**：用 KDA 的 `docs/agent-flow.md`、prompt 模板和工作区（workspace）布局，在你已有的小任务上跑通，不追求 B200 上的数字。
 
 无 GPU 不会阻止你理解 harness；它只阻止你获得可信的 GPU 性能结论。把这两件事分开，学习效率反而更高。
 
@@ -162,7 +164,17 @@ Agent 的成本主要来自 token 与 GPU 时间。开始前先设三个上限�
 
 </Steps>
 
-第 5 步很关键。很多人第一次用 Agent 就让它「优化这个 kernel」，结果 Agent 只能猜你想优化什么。先让它审阅规格，你会立刻发现「快多少算快」「允不允许换 dtype」「baseline 是哪个」这些问题原来都没定义。
+第 5 步很关键。很多人第一次用 Agent 就让它「优化这个 kernel」，结果 Agent 只能猜你想优化什么。先让它审阅任务合同，你会立刻发现「快多少算快」「允不允许换 dtype」「baseline（基线实现）是哪个」这些问题原来都没定义。
+
+
+## 本章自检
+
+- [ ] 我能解释 Kernel Agent 的「工具闭环」与普通代码生成的区别。
+- [ ] 我能说出推动它出现的三个条件，并解释为什么可验证性既是优点也是风险。
+- [ ] 我知道 KDA、Humanize、BBuf skills 各自解决哪一段问题，以及 TIRx Harness 补的是哪一段。
+- [ ] 我能按本站路线说出下一章要读什么，以及为什么先读 Agent 而不是直接读 KDA。
+- [ ] 我完成了环境自检，或明确记录了自己要走无 GPU 路径。
+- [ ] 我能说出至少三条 Agent 使用中的安全边界。
 
 <Exercise level="L1" title="环境与任务合同自检" time="20 分钟">
 
@@ -185,19 +197,10 @@ Agent 的成本主要来自 token 与 GPU 时间。开始前先设三个上限�
 
 </Exercise>
 
-## 本章自检
-
-- [ ] 我能解释 Kernel Agent 的「工具闭环」与普通代码生成的区别。
-- [ ] 我能说出推动它出现的三个条件，并解释为什么可验证性既是优点也是风险。
-- [ ] 我知道 KDA、Humanize、BBuf skills 各自解决哪一段问题，以及 TIRx Harness 补的是哪一段。
-- [ ] 我能按本站路线说出下一章要读什么，以及为什么先读 Agent 而不是直接读 KDA。
-- [ ] 我完成了环境自检，或明确记录了自己要走无 GPU 路径。
-- [ ] 我能说出至少三条 Agent 使用中的安全边界。
-
 ## 延伸阅读
 
 - [KDA 官方仓库](https://github.com/NVlabs/kda) 与 [项目主页](https://nvlabs.github.io/kda)：先读 README 的 Minimal Flow 与 Recommended Workspace Layout。
-- [KDA 官方博客 KDA²: KDA optimize KDA](https://nvlabs.github.io/kda/blog/2026-09-27-kda-for-kda/)：reward hacking 与验收加固的一手材料。
+- [KDA 官方博客 KDA²: Kernel Design Agents optimize Kimi Delta Attention](https://nvlabs.github.io/kda/blog/2026-09-27-kda-for-kda/)：reward hacking 与验收加固的一手材料。
 - [Humanize: Judgement Engineering for Agentic Coding](https://arxiv.org/abs/2610.08900)：重点读引言与「写/判分离」部分。
 - [BBuf/AI-Infra-Auto-Driven-SKILLS](https://github.com/BBuf/AI-Infra-Auto-Driven-SKILLS)：看 skills 目录如何组织领域知识。
 - [2026 GPU Kernel Agent 综述](https://qingkeai.online/blog/2026-GPU-Kernel-Agent)：中文长文，适合先建立全景与术语地图。

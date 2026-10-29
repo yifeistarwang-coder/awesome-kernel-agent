@@ -8,7 +8,7 @@ import Exercise from '../../../components/Exercise.astro';
 import HumanizeFlow from '../../../components/diagrams/HumanizeFlow.astro';
 import FlameChaseFlow from '../../../components/diagrams/FlameChaseFlow.astro';
 
-上一章的 [KDA 案例](/guide/kda/) 讲清了一条完整的 kernel 开发流水线：任务定义、draft、plan、候选实现、benchmark 与记录。但它留下了一个更尖锐的问题：当 builder 说“做完了”，这个“完成”由谁认定？如果认定者就是写代码的人，流程再完整也可能在最后一米失真。本章拆解 Humanize 对这个问题的回答，并把它落到可执行的协议上。
+上一章的 [KDA 案例](/guide/kda/) 讲清了一条完整的 kernel 开发流水线：任务定义、draft、plan、候选实现、benchmark 与记录。在 KDA 的术语里，写代码的一方叫 Coder，判定的一方叫 Verifier；本章按 Humanize 的叫法称它们为 builder 与 reviewer。KDA 留下了一个更尖锐的问题：当 builder 说“做完了”，这个“完成”由谁认定？如果认定者就是写代码的人，流程再完整也可能在最后一米失真。本章拆解 Humanize 对这个问题的回答，并把它落到可执行的协议上。
 
 ## 学习目标
 
@@ -34,7 +34,7 @@ Humanize 团队在 KDA 项目中记录过一个很有代表性的失败。Claude
 
 ## 判断工程：把“信”变成“验”
 
-Humanize 把这类工作称为 **Judgement Engineering（判断工程）**：不指望通过一句“请仔细检查”提升可靠性，而是设计谁来判、看什么证据、在什么条件下必须停。它至少包含三层分离：
+Humanize 把这类工作称为 **Judgement Engineering（判断工程）**：不指望通过一句“请仔细检查”提升可靠性，而是设计谁来判、看什么证据、在什么条件下必须停。论文从一个很值得记住的前提出发：**不要自动化一个人无法判断的计划**（do not automate a plan the human cannot judge）。由此展开四条原则：先判计划再写代码；写与判分离；把“完成”拆成对齐审查与代码审查；用证据而不是轮数衡量进展。落到工程上，它至少包含三层分离：
 
 1. **结构分离**：builder 与 reviewer 使用不同的会话。reviewer 不继承 builder 的对话，只读取计划、代码、测试与 profiling 证据。
 2. **模型分离**：默认让 Claude Code 写、Codex 判，尽量选择不同厂商的模型。同一个模型容易写错的地方，往往也正是它自己看不出来的地方，这就是“同源盲区”。
@@ -51,7 +51,7 @@ Humanize 把这类工作称为 **Judgement Engineering（判断工程）**：不
 把三层写成链式就是 `b → b · m_R → b · m_R · m_O`。论文用「两块 Gibbs 采样器」来解释这个交替：builder 与 reviewer 各自提供不同的条件分布，因此每一步都被两个模型塑形，而循环只能在 reviewer 认可的状态停下。这个模型的价值不在于精确预测，而在于指出两个设计杠杆：降低 `m_R`（换模型、换上下文、给证据）和增加独立层数（oracle）。它也提醒我们，乘法链成立依赖“错误不相关”的假设。如果 reviewer 与 builder 共享同样的知识盲区，或者 reviewer 只看 builder 整理过的摘要，那么实际漏检率会远高于乘积。跨厂商只能降低相关性，不能消除它；人工抽查仍然不可替代。论文明确指出外部 oracle（如证明检查器或测试 harness）会引入第三个漏检因子 `m_O`；把三层连写成 `b → b · m_R → b · m_R · m_O` 是便于记忆的表述，不是论文给出的精确预测公式。
 
 <Aside type="caution" title="reviewer 不是免责声明">
-加一个 reviewer 不等于有了正确性证明。reviewer 也会漏检，也会被漂亮的日志说服。判断工程的目标是让漏检更可见、更可追踪，而不是宣称零缺陷。
+加一个 reviewer 不等于有了正确性证明。reviewer 也会漏检，也会被漂亮的日志说服。判断工程的目标是让漏检更可见、更可追踪，而不是宣称零缺陷。另一个方向的代价是误报：论文指出 reviewer 的误报会变成额外轮次，所以判断工程也要观察误报率，而不只是漏检率。
 </Aside>
 
 ## RLCR：一条可执行的循环
@@ -60,10 +60,10 @@ Humanize 把这类工作称为 **Judgement Engineering（判断工程）**：不
 
 <Steps>
 
-1. **写计划并签合同**。builder 先产出 plan，说明要改什么、为什么、如何验证。计划合同固定四样东西：目标、验收标准（含正向与反向测试）、路径边界，以及任务分工（Claude 负责编码、Codex 负责分析）。开工前流程先做一次 plan-compliance 检查，拒绝与任务无关的计划和会破坏轮次记账的「切换分支」指令；再用两道选择题检查人类是否真的看懂了 plan 的机制与架构。这两道题是理解度检查，不替代人对计划的判断。
+1. **写计划并签合同**。builder 先产出 plan，说明要改什么、为什么、如何验证。计划合同固定四样东西：目标、验收标准（含正向与反向测试）、路径边界，以及任务分工（Claude 负责编码、Codex 负责分析）。注意计划合同与 KDA 的任务合同不是一回事：任务合同先定义「做什么、怎样算过」，计划合同在此基础上把「怎么做、分几步、谁负责」写成可执行承诺。开工前流程先做一次 plan-compliance 检查，拒绝与任务无关的计划和会破坏轮次记账的「切换分支」指令；再用两道选择题帮助人确认自己是否真的看懂了 plan 的机制与架构。这两道题是建议性的理解度检查，不替代人对计划的判断；人确认合同之后，builder 才能开工。
 2. **builder 实施**。默认由 Claude Code 承担，读代码、改 kernel、编译、跑正确性与性能测试，并留下可复核的产物。
 3. **新上下文 review**。Codex 在全新会话中读取任务、计划、diff、测试日志与 profiling 结果，不读取 builder 的自我辩解。它要回答的是“证据是否支持完成”，而不是“代码看起来是否合理”。
-4. **机械检查与 Stop hook**。在 builder 试图结束会话时，Stop hook 触发 72 道机械检查，覆盖状态、计划、隔离、git、review、会话、产物、经验、环境与完成条件等类别。缺文件、缺记录、隔离被破坏等硬性问题会直接阻止结束。
+4. **机械检查与 Stop hook**。在 builder 试图结束会话时，Stop hook 触发 72 道机械检查中的 32 道（全套覆盖状态、计划、隔离、git、review、会话、产物、经验、环境与完成条件等类别）。缺文件、缺记录、隔离被破坏等硬性问题会直接阻止结束。
 5. **reviewer 判定进展**。reviewer 把问题分为主线缺口（mainline gaps）、阻塞性支线问题（blocking side issues）与可排队支线问题（queued side issues），并报告主线是**推进、停滞还是回退**；论文强调用证据衡量进展，而不是用轮数。连续两轮停滞会触发漂移恢复提示，每第五轮是一次 Full Alignment Review，审计全部验收标准，循环的停止邀请也只发生在这种审查上。
 6. **按协议结束**。结束不是一个模糊的“差不多了”，而是有限状态机中的一种明确状态。
 
@@ -71,29 +71,29 @@ Humanize 把这类工作称为 **Judgement Engineering（判断工程）**：不
 
 72 道检查听起来很多，但它们的定位不是给代码质量打分，而是防止“口头完成”：该跑的命令跑了吗，baseline 是否被替换，测试是否被改松，reviewer 是否真的用了新会话，产物是否齐全。机械检查只能保证形式，语义判断仍由 reviewer 承担。两者缺一不可：只有 reviewer 容易漏，只有 gates 容易形式化。上述数量与类别来自 Humanize 论文（arXiv:2610.08900，2026-10），具体实现以仓库为准。
 
-论文把 72 道 gate 按类别归档：其中 29 道住在工具调用与 prompt 校验器里（只有 Claude Code 插件会安装它们），32 道跑在 Stop hook 上，其余分布在状态文件、计划副本与轮次隔离等位置。论文也诚实记录了一处**失效即放行（fail open）**的缺口：状态文件损坏时，校验器以退出码 1 结束，而 Claude Code 把它当作非阻塞错误，调用照常继续。这类「形式完备但实现有洞」的细节，是判断工程本身也需要被复盘的原因。
+论文把 72 道 gate 按类别归档：其中 29 道住在工具调用与 prompt 校验器里（只有 Claude Code 插件会安装它们），32 道跑在 Stop hook 上，其余 11 道分布在状态文件、计划副本与轮次隔离等位置。论文也诚实记录了一处**失效即放行（fail open）**的缺口：状态文件损坏时，工具调用校验器以退出码 1 结束，而 Claude Code 把它当作非阻塞错误，调用照常继续。这类「形式完备但实现有洞」的细节，是判断工程本身也需要被复盘的原因。
 
 | 结束方式 | 含义 | 是否算成功 |
 | --- | --- | --- |
 | complete | reviewer 接受，且证据满足计划与验收标准 | 是 |
-| stop | reviewer 判定停止，或连续三轮停滞/回退；也可能是人主动要求停止 | 不一定 |
+| stop | reviewer 判定停止，或连续三轮停滞/回退 | 不一定 |
 | maxiter | 达到实现阶段的轮数上限（默认 42 轮），循环被截断 | 否，通常应视为未完成 |
 | cancel | 需要用户请求才能触发的取消 | 否 |
 | unexpected | 状态文件损坏等异常导致的退出 | 否，需要复盘 |
 
 论文还基于 108 天、118 份公开复盘（postmortem）总结失败模式。这些复盘来自公开 issue 里的方法论报告：仓库共 150 条 issue、52 位作者，其中 118 条是真实循环的复盘。这个数字的意义在于：判断工程不是一次性 prompt 技巧，而是需要长期运营的流程；失败案例本身也是资产，可以用来更新 gates、reviewer 提示与任务模板。
 
-论文同时报告了两个值得警惕的观察：在有轮次统计的复盘里，循环轮数中位数为 10 轮、最长 87 轮；而在区分阶段的那批复盘中，**67.3% 的轮次发生在实现已被接受之后的 code review 阶段**——作者据此指出，停止机制仍然是这套体系的薄弱环节。换句话说，reviewer 很会挑错，但「什么时候该停」依然难。这也是第 7 章把停止条件单列为 harness 组件的原因。
+论文同时报告了两组值得警惕的数据：在记录了轮次数的 93 份复盘里，循环轮数中位数为 10 轮、最长 87 轮；而在区分阶段的 27 份复盘里，541 轮中有 364 轮（**67.3%**）发生在实现已被接受之后的 code review 阶段——作者据此指出，停止机制仍然是这套体系的薄弱环节。换句话说，reviewer 很会挑错，但「什么时候该停」依然难。这也是为什么[Agent 与 harness](/guide/agent-harness/)要把预算与停止条件写进 harness：什么时候停，不能由 agent 自己判断。
 
 ### 把流程串起来
 
 <HumanizeFlow />
 
-上图把计划合同、理解度检查、builder、独立 reviewer、72 道 gates 与结束判定串成一条闭环。读图时注意三个位置：reviewer 使用的是新上下文，而不是 builder 会话的延续；gates 在 Stop 时触发，属于强制层；只有 reviewer 能给出 complete，builder 的自述不构成完成信号。图中的回路表示“未通过就继续”，但继续的前提是拿到新证据，而不是单纯再跑一轮。
+上图把计划合同、理解度检查、builder、独立 reviewer、72 道 gates 与结束判定串成一条闭环。读图时注意三个位置：reviewer 使用的是新上下文，而不是 builder 会话的延续；其中 32 道 gates 在 Stop 时触发，属于强制层；只有 reviewer 能给出 complete，builder 的自述不构成完成信号。图中的回路表示“未通过就继续”，但继续的前提是拿到新证据，而不是单纯再跑一轮。
 
 ## 证据：消融与真实结果
 
-Humanize 论文转述了一组很能说明问题的消融（论文措辞为团队报告的 ablation）：在 DSA indexer 任务、48 小时预算下，仅使用 RLCR 达到 3.71×，加入 KernelWiki 后达到 6.14×，再加入 profiling skill 后达到 8.58×；同一设置下 K-Search 为 1.37×。
+Humanize 论文转述了一组很能说明问题的消融（论文措辞为团队报告的 ablation）：在 DSA indexer 任务、48 小时预算下，相对同一 baseline，仅使用 RLCR 达到 3.71×，加入 KernelWiki 后达到 6.14×，再加入 profiling skill 后达到 8.58×；同一设置下，论文对比的另一个 kernel 生成系统 K-Search 为 1.37×。
 
 | 配置 | 报告结果 | 说明了什么 |
 | --- | --- | --- |
@@ -101,43 +101,43 @@ Humanize 论文转述了一组很能说明问题的消融（论文措辞为团�
 | RLCR + KernelWiki | 6.14× | 可检索的算子与迁移知识减少了盲目搜索，方向更准 |
 | RLCR + KernelWiki + profiling skill | 8.58× | 把“猜瓶颈”变成“读证据”，优化动作更有针对性 |
 
-来源：Humanize 论文（arXiv:2610.08900，2026-10）转述的团队报告，任务为 DSA indexer，预算 48 小时；同文给出 K-Search 基线为 1.37×。这三档是同一任务上的逐步叠加，不能拆开当作独立结论外推。
+来源：[Humanize 论文](https://arxiv.org/abs/2610.08900)（2026-10）转述的团队报告，任务为 DSA indexer，预算 48 小时；同文给出 K-Search 基线为 1.37×。这三档是同一任务上的逐步叠加，不能拆开当作独立结论外推。还要注意任务边界：这里的 DSA indexer 与 [KDA 案例](/guide/kda/) 里 v0.5 的 DSA Attention 是两个不同的 kernel，3.71×/6.14×/8.58× 不能和 1.408× 直接比较。
 
 这三个数字不应被读成“加一个 skill 就自动乘 1.6”。它们对应同一任务、同一预算下的逐步叠加，说明的是信息质量对 Agent 行为的放大作用：reviewer 降低了错误结论的存活率，KernelWiki 提供了正确候选，profiling skill 让候选优化命中真实瓶颈。换任务、换硬件、换预算，数值都会变化。
 
-论文与应用方还报告了以下结果（均为其公开材料中的最好结果，不代表普遍保证）：
+论文的应用章节还报告了以下结果（主要来自 [Humanize 论文](https://arxiv.org/abs/2610.08900) 的应用报告，2026-10；这些是公开材料中的最好结果，不代表普遍保证）：
 
 | 场景 | 报告结果 | 来源与时间 |
 | --- | --- | --- |
 | MLSys 2026 FlashInfer Full-Agent 赛道 | MoE 第一、DSA 第二、GDN 第三 | Humanize 论文及中文解读，2026-10 |
 | PutnamBench | 672/672 | Humanize 论文，2026-10 |
 | Lean-Eval legacy 榜单 | 251/303，排名第一 | Humanize 论文，2026-10 |
-| Loom 搜索 | 180 秒预算下，探索的候选提案数从 97,138 提升到 227,777，约 2.34× | Humanize 论文，2026-10 |
+| Loom 搜索（放置与布线） | 180 秒预算下，探索的候选提案数从 97,138 提升到 227,777，约 2.34× | Humanize 论文，2026-10 |
 | gem5 构建系统迁移 | 567 个文件、133 个 commit，把 SCons 换成 CMake 与 Ninja | Humanize 论文，2026-10 |
-| HOA 竞赛 | IOI 2026、IMO 2026、IPhO 2026、IBO 2024 报告满分；IChO 2026 得 418.5/437（金牌） | Humanize 论文，2026-10 |
+| HOA（Humanize Olympiad Agents）竞赛 | IOI 2026、IMO 2026、IPhO 2026、IBO 2024 报告满分；IChO 2026 得 418.5/437（金牌） | Humanize 论文，2026-10 |
 
-读这张表时有三个细节值得注意。第一，Loom 的 2.34× 是**吞吐结果**，论文明确说明它不代表映射质量更好——四个跑得更快的候选因为破坏了与参考映射的逐步决策一致性而被回退。第二，gem5 迁移虽然由 agent 完成，上游 CI 尚未通过，最终接收仍然是人的决定。第三，这些数字覆盖 kernel、形式化证明、竞赛题与大型构建迁移，说明“判断工程”并不绑定 GPU；但论文也自陈这是应用报告而非受控对比，论文展示的是成功案例，失败与成本细节需要回到原始材料核对。引用这些数字时，至少同时写出任务、预算与时间。
+读这张表时有三个细节值得注意。第一，Loom 的 2.34× 是**吞吐结果**，论文明确说明它不代表映射质量更好——四个更快的候选因为破坏了与参考映射的逐层决策轨迹等价性（trace equivalence）而被回退。第二，gem5 迁移虽然由 agent 完成，论文成稿时仍处在上游 review 中（under upstream review），最终是否接收由人决定。第三，这些数字覆盖 kernel、形式化证明、竞赛题与大型构建迁移，说明“判断工程”并不绑定 GPU；但论文也自陈这是应用报告而非受控对比，论文展示的是成功案例，失败与成本细节需要回到原始材料核对。引用这些数字时，至少同时写出任务、预算与时间。
 
 ## Humanize 2：从插件到 flow 运行时
 
-Humanize 1 最初作为 KDA 的规划与迭代插件，主要形态是 Claude Code 插件，依靠 hook 把 RLCR 协议嵌进会话：论文描述插件提供五个斜杠命令、四个 subagent、六个 skill，以及覆盖四个 Claude Code 事件的 hook；RLCR 本身分两个阶段，Implementation 阶段由 Claude 产出、Codex 复核摘要，Code Review 阶段由 Codex 对 diff 出带严重级别的结论并驱动修复轮。Humanize 2（仓库中的 `hmz`）把编排搬到独立运行时：一个 **flow 就是一段 Python async 函数**，两轮之间可以运行任意代码，因而可以插入检查、分支、预算控制与自定义工具。
+Humanize 1 以 Claude Code 插件的形态存在，KDA 把它作为可选的规划与迭代工具安装；它依靠 hook 把 RLCR 协议嵌进会话：论文描述插件提供五个斜杠命令、四个 subagent、六个 skill，以及覆盖四个 Claude Code 事件的 hook；RLCR 本身分两个阶段，Implementation 阶段由 Claude 产出、Codex 复核摘要，Code Review 阶段由 Codex 对 diff 出带严重级别的结论并驱动修复轮。Humanize 2（仓库中的 [`hmz`](https://github.com/humanfia/humanize)）把编排搬到独立运行时：一个 **flow 就是一段 Python async 函数**，两轮之间可以运行任意代码，因而可以插入检查、分支、预算控制与自定义工具。
 
 截至 2026-10-29，公开材料显示它具备这些特征（项目仍在演进，具体能力以官方文档为准）：
 
-- **CLI 可组合**：官方文档写的是「Claude Code、Codex 与另外十一个」，共十三个 coding agent，另加任何支持 ACP 协议的 agent；builder 与 reviewer 可以是其中任意一个，而不是固定绑定两家。CLI 侧不同后端需要各自的可选依赖包，例如 DeepSeek Harness、Kimi Code 与 litellm 各自成包安装。
+- **CLI 可组合**：官方文档写的是 13 个 coding agent（包括 Claude Code、Codex 等），另加任何支持 ACP 协议的 agent；builder 与 reviewer 可以是其中任意一个，而不是固定绑定两家。CLI 侧不同后端需要各自的可选依赖包，例如 DeepSeek Harness 对应 `hmz[dsh]`、Kimi 对应 `hmz[kimi]`、直连模型 API 的路径对应 `hmz[litellm]`。
 - **预算可编排**：可以按时间、token 或美元封顶，让“继续跑”变成一个有成本的决策；官方文档的措辞是预算用完即停，而不是事后统计。
-- **运行可后台化**：一次运行可以在后台继续，关掉笔记本也不会中断。
-- **flow 可复用**：Humanize 1 的 RLCR 被拆成三个 flow 放到 `humanize1-flow`：gen-idea 生成想法、gen-plan 生成计划、RLCR 执行带 review 的构建循环；社区 flow 汇总在 flowverse，其 `flows/` 目录当前可见 aot、flame_chasoid、humanize1、recursive_lean_prover 等条目。
+- **运行可后台化**：一次运行可以在后台继续（本机或自有服务器），中断后能从上次的位置接着跑。
+- **flow 可复用**：Humanize 1 的 RLCR 被拆成三个 flow 放到 [`humanize1-flow`](https://github.com/humanfia/humanize1-flow)：gen-idea 生成想法、gen-plan 生成计划、RLCR 执行带 review 的构建循环；社区 flow 汇总在 [flowverse](https://github.com/humanfia/flowverse)，其 `flows/` 目录当前可见 aot、flame_chasoid、humanize1、recursive_lean_prover 等条目。
 
 | 维度 | Humanize 1 | Humanize 2 |
 | --- | --- | --- |
 | 形态 | Claude Code 插件与 hook 协议 | 独立运行时（`hmz`），flow 为 async 函数 |
-| 组合 | 默认 Claude Code + Codex | 十三个 coding agent 任意搭配，另支持 ACP |
-| 控制 | Stop hook、72 道机械检查 | 代码级编排、时间/token/美元预算 |
+| 组合 | 默认 Claude Code + Codex | 13 个 coding agent 中任选，另支持 ACP |
+| 控制 | 72 道机械检查（32 道在 Stop hook） | 代码级编排、时间/token/美元预算 |
 | 典型 flow | RLCR | Flame Chase、ralph_loop 等 |
 
 <Aside type="caution" title="注意默认的审批行为">
-Humanize 官方文档明确提示：flow 中的 agent 会**跳过审批**直接改文件、跑命令、做提交，因此建议先在一次性仓库里试跑。这不是可以忽略的细节——它意味着你的测试文件、评估脚本和整个工作区都在 agent 的可写范围内，第 7 章讨论的「评测文件只读」必须由你自己在 harness 层实现。
+Humanize 官方文档明确提示：flow 中的 agent 会**跳过审批**直接改文件、跑命令、做提交，因此建议先在一次性仓库里试跑。这不是可以忽略的细节——它意味着你的测试文件、评估脚本和整个工作区都在 agent 的可写范围内，[自建 harness](/guide/beyond/) 讨论的「评测文件只读」必须由你自己在 harness 层实现。
 </Aside>
 
 ### Flame Chase：只共享工作目录
@@ -175,11 +175,12 @@ Flame Chase 把“写/判分离”推进到更彻底的形式：两个 Agent 轮
 - [ ] 我能写出错误率模型 `b → b · m_R → b · m_R · m_O`，并说明它的独立性假设。
 - [ ] 我能解释 3.71×、6.14×、8.58× 三个数字分别对应什么配置，并说明它们不能外推。
 - [ ] 我能说出计划合同固定了哪四样东西，以及两道选择题的作用与局限。
+- [ ] 我能区分任务合同与计划合同：前者定义「做什么、怎样算过」，后者定义「怎么做、分几步、谁负责」。
 - [ ] 我能解释 72 道 gate 的分布（29 道在校验器、32 道在 Stop hook）以及一处 fail open 的含义。
 - [ ] 我能区分 Humanize 1 的插件协议与 Humanize 2 的 flow 运行时。
 - [ ] 我能说清 Flame Chase 中“只共享工作目录”的好处与代价。
 
-## 练习
+### 练习
 
 <Exercise level="L3" title="为 kernel 任务设计一份 reviewer 检查清单" time="45 分钟">
 

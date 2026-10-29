@@ -35,12 +35,12 @@ import Exercise from '../../../components/Exercise.astro';
 
 ### 三个可以直接借鉴的开源 harness
 
-自建之前，先看看别人把同一套零件装成了什么样：
+自建之前，先看看别人把同一套零件装成了什么样。下面三个项目都公开了代码与运行记录，不是纸面设计：
 
 | 项目 | 它强在哪 | 你能借鉴什么 |
 | --- | --- | --- |
 | [KDA](https://github.com/NVlabs/kda) | 任务合同、最小流程与证据记录；KernelWiki 与 ncu-report 两个 skill | 目录布局、晋升规则、候选记录格式 |
-| [Humanize](https://github.com/humanfia/humanize) / [Humanize 1](https://github.com/PolyArch/humanize) | 写/判分离、计划合同、72 道机械 gate、flow 运行时 | 判定的独立性与机械化的具体做法 |
+| [Humanize](https://github.com/humanfia/humanize) / [Humanize 1](https://github.com/PolyArch/humanize) | 写/判分离、计划合同、72 道机械 gate，以及 Humanize 2 的 flow 运行时 | 判定的独立性与机械化的具体做法 |
 | [TIRx Harness](https://github.com/mlc-ai/tirx-harness) | 把编译器、知识库、编译期分析与基准服务接给 Agent；workload contract 用来定义正确性与性能 | 「Agent 能拿到什么工具」这一层的清单；它还提供远程执行（kcoral）与 kernel 仓库，便于把编译与评测搬到远端机器 |
 
 TIRx 公开的结果可以作为「流程能做到什么量级」的参照：它在 KDA workload 上报告 forward 2.94×、backward 6.84×、MSA prefill 2.59×（几何平均，来源为 [MLC 博客](https://blog.mlc.ai/2026/09/29/tirx-harness-an-open-compiler-harness-for-agentic-gpu-programming)，2026-09-29）。注意这些数字的 baseline 与 KDA 官方博客里的 2.96×/2.94×/2.85× 不同，不可并列比较。
@@ -167,7 +167,9 @@ Reward hacking 指 Agent 优化了你写的指标，却没有完成你真正想�
 
 验收时看五件事：任务规格是否可执行；失败是否能被自动发现；reviewer 是否至少拦截过一次真实错误；日志能否让第三人复现；预算是否能硬停。性能提升是加分项，不是 v0 的必要条件。
 
-## 常见失败模式
+## 常见误区与失败模式
+
+最常见的误区是把“循环跑起来”当成“闭环成立”：Agent 能改代码、能跑命令，不等于失败会被发现、候选会被比较。下面这些失败模式，本质上都是某个组件在形式上有、在判定上无。
 
 | 失败模式 | 表现 | 修正 |
 | --- | --- | --- |
@@ -178,6 +180,30 @@ Reward hacking 指 Agent 优化了你写的指标，却没有完成你真正想�
 | 日志缺失 | 无法比较候选，复盘靠记忆 | 只追加 ledger，固定字段 |
 | 评测可写 | Agent 改阈值或 baseline | 评测文件只读，改动进 diff |
 
+## 回到主线：七篇正文，一个闭环
+
+把七篇正文压缩成一张表，会发现它们回答的是同一串问题：
+
+| 篇章 | 回答的问题 | 你应该留下的产物 |
+| --- | --- | --- |
+| 导读 | 这个领域在解决什么 | 一条适合自己的学习路线与环境清单 |
+| Agent 与 harness | Agent 为什么需要 harness | 任务规格、draft 与可验收的停止条件 |
+| GPU kernel 与性能 | 怎么判断一个 kernel 好不好 | baseline、六维 profiling 结论 |
+| KDA | 一套完整流程长什么样 | 候选记录与保留/放弃理由 |
+| Humanize | 谁来判断“做完了” | 写/判分离的检查清单 |
+| Skills | 经验怎么复用 | 一个可执行、可维护的 skill |
+| 自建 harness | 怎么把零件装成系统 | 能硬停、能复盘的 v0 |
+
+如果只记一件事，记这条：**Agent 的输出不是结论，证据才是结论**。任务合同让证据有明确的比较对象，独立 reviewer 让证据被真正检查，skill 让证据的获取更快，harness 让证据被保存和复用。四者缺一，流程就会退化成“看起来跑通了”。
+
+接下来可以按三条线继续：
+
+1. **接一个真实任务**。把 v0 用到你正在读的仓库或课程项目上，连续跑一周，统计成功率、平均轮数与单位任务成本。
+2. **把 evaluator 当产品维护**。每发现一次绕过，就补一条测试并记录它防住了什么；这比换更强的模型更能提升下限。
+3. **跟踪上游**。KDA、Humanize 与 TIRx 都在演进，按“版本 + 日期 + 失效条件”更新来源登记表，而不是追逐每一个新名词。
+
+这本书的终点不是复刻 KDA 或 Humanize，而是拥有一个自己能解释、能验证、能停下来的循环。做到这一点，你就已经在本领域里“从零读到了动手”。
+
 ## 本章自检
 
 - [ ] 我能列出 harness 的六个组件，并说出缺一个会怎样。
@@ -186,8 +212,9 @@ Reward hacking 指 Agent 优化了你写的指标，却没有完成你真正想�
 - [ ] 我能解释 KDA for KDA 的 3.74× 方案为何是 reward hacking，以及 evaluator 如何升级。
 - [ ] 我能说出持续跟踪上游时需要记录哪些版本信息。
 - [ ] 我有一个可以为小 kernel 运行的 v0 方案，并知道它的第一道防线是什么。
+- [ ] 我能把七篇正文压成一张问题—产物对照表，并说出自己下一步要补的一环。
 
-## 练习
+### 练习
 
 <Exercise level="L4" title="为一个小 kernel 搭 v0 harness" time="3 至 4 小时">
 
@@ -222,15 +249,15 @@ Reward hacking 指 Agent 优化了你写的指标，却没有完成你真正想�
 
 ## 延伸阅读
 
-- KDA：[链接](https://github.com/NVlabs/kda)
-- Humanize：[链接](https://github.com/PolyArch/humanize)
-- Humanize 论文：[链接](https://arxiv.org/abs/2610.08900)
-- TIRx harness：[链接](https://github.com/mlc-ai/tirx-harness)
-- TIRx 文档：[链接](https://tirxharness.mlc.ai/docs/)
-- TIRx 博客：[链接](https://blog.mlc.ai/2026/09/29/tirx-harness-an-open-compiler-harness-for-agentic-gpu-programming)
-- KDA 官方博客（reward hacking 与验收加固）：[链接](https://nvlabs.github.io/kda/blog/2026-09-27-kda-for-kda/)
-- NVIDIA Nsight Compute：[链接](https://docs.nvidia.com/nsight-compute/NsightCompute/index.html)
-- 上一章回顾：[Skills 与经验沉淀](/guide/skills/)
+- [KDA](https://github.com/NVlabs/kda)：任务合同、最小流程与证据记录的一手仓库。
+- [Humanize](https://github.com/PolyArch/humanize)：RLCR、计划合同与 72 道机械检查的插件实现。
+- [Humanize 论文](https://arxiv.org/abs/2610.08900)：判断工程、消融与 Humanize 2 的原始材料。
+- [TIRx harness](https://github.com/mlc-ai/tirx-harness)：编译器、知识库、分析工具与基准服务的开源 harness。
+- [TIRx 文档](https://tirxharness.mlc.ai/docs/)：安装、快速上手、workload contract 与扩展指南。
+- [TIRx 博客](https://blog.mlc.ai/2026/09/29/tirx-harness-an-open-compiler-harness-for-agentic-gpu-programming)：公开结果、架构与设计动机。
+- [KDA 官方博客（reward hacking 与验收加固）](https://nvlabs.github.io/kda/blog/2026-09-27-kda-for-kda/)：2.96×、五类作弊与六道 gate 的一手复盘。
+- [NVIDIA Nsight Compute](https://docs.nvidia.com/nsight-compute/NsightCompute/index.html)：ncu 指标、section 与命令行参数的官方参考。
+- 上一章回顾：[Skills 与经验沉淀](/guide/skills/)，看领域知识如何被组织成可加载的 skill。
 
 课程正文到这里结束。接下来可以进入[练习册](/exercises/)做综合题，或到[资料库](/resources/)按图索骥；如果只想快速查词，[术语表](/glossary/)提供了全站索引。
 

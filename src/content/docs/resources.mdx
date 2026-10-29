@@ -3,7 +3,7 @@ title: 资料库：官方链接与延伸阅读
 description: 按官方项目、论文解读、工具链与社区博客分类整理的 Kernel Agent 资料，附核对日期与使用建议。
 ---
 
-本页集中管理站外链接，避免正文里散落过期地址。每条资料给出一句话说明、原始链接与核对日期；核对日期表示“该链接在当天可访问且内容与描述相符”，不保证之后不变。涉及版本、成绩与接口的细节，请以官方页面为准。
+本页集中管理站点的主要外部资料；正文里少量一次性来源（如某个具体文档锚点）会就地给出链接。每条资料给出一句话说明、原始链接与核对日期；核对日期表示“该链接在当天可访问且内容与描述相符”，不保证之后不变。涉及版本、成绩与接口的细节，请以官方页面为准。
 
 ## 官方项目与代码
 
@@ -13,19 +13,21 @@ description: 按官方项目、论文解读、工具链与社区博客分类整�
 | KDA 项目主页 | KDA 的概览、硬件目标、wishlist 提交流程与竞赛结果入口。 | [打开](https://nvlabs.github.io/kda) | 核对于 2026-10-29 |
 | KDA 官方博客（KDA²） | v0.6 在 B300 上优化 Kimi Delta Attention 的一手材料：2.96×、五种 reward hacking 与六道验收 gate。 | [打开](https://nvlabs.github.io/kda/blog/2026-09-27-kda-for-kda/) | 核对于 2026-10-29 |
 | Humanize 仓库 | Humanize 1 的 Claude Code 插件实现，核心是 RLCR 与计划合同。 | [打开](https://github.com/PolyArch/humanize) | 核对于 2026-10-29 |
-| Humanize 文档 | Humanize 的安装、运行 flow 与编写 flow 的官方文档。 | [打开](https://docs.humanfia.ai/humanize/) | 核对于 2026-10-29 |
-| Humanize 2 仓库 | 新一代 flow 运行时，flow 为 Python async 函数，仍在演进。 | [打开](https://github.com/humanfia/humanize) | 核对于 2026-10-29 |
+| Humanize 文档 | Humanize 2（hmz）的安装、运行 flow 与编写 flow 的官方文档。 | [打开](https://docs.humanfia.ai/humanize/) | 核对于 2026-10-29 |
+| Humanize 2 仓库 | Humanize 2（hmz）的 flow 运行时，flow 为 Python async 函数，仍在演进。 | [打开](https://github.com/humanfia/humanize) | 核对于 2026-10-29 |
 | Humanize 官方站点 | 产品与 flow 清单的入口，可查看现成 flow 的结构。 | [打开](https://humanfia.ai/) | 核对于 2026-10-29 |
 | humanize1-flow | 把 Humanize 1 的 RLCR 拆成 gen-idea、gen-plan、RLCR 三个可复用 flow。 | [打开](https://github.com/humanfia/humanize1-flow) | 核对于 2026-10-29 |
 | flowverse | Humanize 社区 flow 清单，适合找可组合的现成流程。 | [打开](https://github.com/humanfia/flowverse) | 核对于 2026-10-29 |
 | BBuf AI Infra Skills | 把 serving、profiling、PR 检索等 Infra 经验沉淀成 Agent 可查的 skill。 | [打开](https://github.com/BBuf/AI-Infra-Auto-Driven-SKILLS) | 核对于 2026-10-29 |
-| Skills 目录 | 上述仓库的 skill 源文件目录，含 11 个 skill 条目与 118 份模型 PR 历史档案。 | [打开](https://github.com/BBuf/AI-Infra-Auto-Driven-SKILLS/tree/main/skills) | 核对于 2026-10-29 |
+| Skills 目录 | 上述仓库的 skill 源文件目录，含 11 个 skill；118 份模型 PR 历史档案在同仓库的 `model-pr-optimization-history/`。 | [打开](https://github.com/BBuf/AI-Infra-Auto-Driven-SKILLS/tree/main/skills) | 核对于 2026-10-29 |
 | KernelWiki | 可检索的 kernel 领域知识库，KDA 以固定版本的子模块引入。 | [打开](https://github.com/mit-han-lab/KernelWiki) | 核对于 2026-10-29 |
 | ncu-report-skill | 把 Nsight Compute 的分析顺序固化为六维框架的 skill，附报告解析脚本。 | [打开](https://github.com/mit-han-lab/ncu-report-skill) | 核对于 2026-10-29 |
 | MLSys 2026 竞赛方案 | HAN Lab 在 MLSys Kernel Contest 各赛道前三的方案与复现说明。 | [打开](https://github.com/mit-han-lab/mlsys2026-flashinfer-contest) | 核对于 2026-10-29 |
 | TIRx harness | MLC 开源的编译器 harness，用于 Agent 驱动的 GPU kernel 优化。 | [打开](https://github.com/mlc-ai/tirx-harness) | 核对于 2026-10-29 |
 | TIRx 文档 | harness 的安装、快速上手、工作负载契约与扩展指南。 | [打开](https://tirxharness.mlc.ai/docs/) | 核对于 2026-10-29 |
 | FlashInfer | 面向 LLM 推理的高性能 kernel 库，也是竞赛与基准的重要基础。 | [打开](https://github.com/flashinfer-ai/flashinfer) | 核对于 2026-10-29 |
+| HOA | Humanfia 的竞赛 Agent 项目，覆盖奥赛、PutnamBench 与 Lean 4 证明检查。 | [打开](https://github.com/humanfia/hoa) | 核对于 2026-10-29 |
+| Loom | Humanize 论文中的搜索型工作负载案例，180 秒预算下 2.34× 吞吐结果的出处。 | [打开](https://github.com/PolyArch/loom) | 核对于 2026-10-29 |
 
 ## 论文与解读
 
@@ -37,9 +39,6 @@ description: 按官方项目、论文解读、工具链与社区博客分类整�
 | 2026 GPU Kernel Agent 综述 | 2026-10-08 发布的长文，梳理 GPU Kernel Agent 的方法、基准与验证，适合建立全景与术语地图。 | [打开](https://qingkeai.online/blog/2026-GPU-Kernel-Agent) | 核对于 2026-10-29 |
 | TIRx harness 博客 | 介绍开源编译器 harness 如何服务 Agent 编程，含任务与工具设计与公开结果。 | [打开](https://blog.mlc.ai/2026/09/29/tirx-harness-an-open-compiler-harness-for-agentic-gpu-programming) | 核对于 2026-10-29 |
 | Humanize 中文解读 | B 站视频，适合先听一遍直觉，再回论文核对细节。 | [打开](https://m.bilibili.com/video/BV17YJX6FEsK/) | 核对于 2026-10-29 |
-| MLSys 2026 竞赛页 | FlashInfer AI Kernel Generation Contest 的官方赛道、规则与资源入口。 | [打开](https://mlsys26.flashinfer.ai/) | 核对于 2026-10-29 |
-| HOA | Humanize Olympiad Agents，Humanfia 的竞赛应用仓库。 | [打开](https://github.com/humanfia/hoa) | 核对于 2026-10-29 |
-| Loom | Humanize 论文中的放置与布线搜索案例，2.34× 吞吐结果的出处。 | [打开](https://github.com/PolyArch/loom) | 核对于 2026-10-29 |
 
 ## 工具链与文档
 
@@ -51,11 +50,13 @@ description: 按官方项目、论文解读、工具链与社区博客分类整�
 | CuTe DSL 文档 | CUTLASS 的 Python DSL 文档，KDA v0.5 使用的实现方式之一。 | [打开](https://docs.nvidia.com/cutlass/latest/media/docs/pythonDSL/quick_start.html) | 核对于 2026-10-29 |
 | Triton 文档 | 以 Python 编写 GPU kernel 的编译器与语言文档，适合快速做对照实验。 | [打开](https://triton-lang.org/) | 核对于 2026-10-29 |
 | PyTorch Profiler | 从 Python 调用栈定位 kernel 的官方工具文档，适合做 kernel 与 Python 行映射。 | [打开](https://pytorch.org/docs/stable/profiler.html) | 核对于 2026-10-29 |
+| FlashInfer Trace 文档 | 用 JSON schema 描述 kernel 定义、workload、solution 与评测结果的格式规范。 | [打开](https://bench.flashinfer.ai/docs/flashinfer-trace) | 核对于 2026-10-30 |
 
 ## 社区与博客
 
 | 资料 | 一句话说明 | 链接 | 核对日期 |
 | --- | --- | --- | --- |
+| MLSys 2026 竞赛页 | FlashInfer AI Kernel Generation Contest 的官方赛道、规则与资源入口。 | [打开](https://mlsys26.flashinfer.ai/) | 核对于 2026-10-29 |
 | MLC 博客 | MLC 团队关于编译器、TIRx 与 Agent 编程的技术文章入口。 | [打开](https://blog.mlc.ai/) | 核对于 2026-10-29 |
 | MLSys 官网 | MLSys 会议与竞赛的官方信息入口。 | [打开](https://mlsys.org/) | 核对于 2026-10-29 |
 | Apache TVM | TIRx 所基于的编译器项目主页，含文档与社区入口。 | [打开](https://tvm.apache.org/) | 核对于 2026-10-29 |
@@ -66,4 +67,4 @@ description: 按官方项目、论文解读、工具链与社区博客分类整�
 
 如果发现链接失效、版本更新或数字与官方不符，请以官方页面为准，并在本站的更新日志中记录修正。资料库会随版本迭代增删条目，不追求“大而全”，只保留对学习路径有直接帮助的来源。
 
-> 免责声明：本页链接均指向第三方项目与文章，版权与解释权归原作者所有；本站与 NVIDIA、MIT、Humanize、BBuf、MLC 等团队无隶属关系。资料内容可能随时更新，引用前请自行核对。最后统一核对日期：2026-10-29。
+> 免责声明：本页链接均指向第三方项目与文章，版权与解释权归原作者所有；本站与 NVIDIA、MIT、Humanize、BBuf、MLC 等团队无隶属关系。资料内容可能随时更新，引用前请自行核对。各条目的核对日期以表格为准，新增条目核对于 2026-10-30。

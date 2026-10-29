@@ -19,7 +19,7 @@ import Exercise from '../../../components/Exercise.astro';
 
 ## 一个 kernel 在 GPU 上怎么跑
 
-CUDA 程序把计算组织成三层：**thread** 是最小执行单位；**block** 是一组能通过 shared memory 与 barrier 协作的 thread；**grid** 是这次 launch 的全部 block。硬件侧，**SM**（Streaming Multiprocessor）是调度与执行的基本单元，一个 SM 同时驻留多个 block；每个 block 又被切成 **warp**，NVIDIA GPU 上通常是 32 个 thread 一组，以 warp 为单位取指与调度。
+CUDA 程序把计算组织成三层：**thread** 是最小执行单位；**block**（CUDA 文档中也称 CTA，cooperative thread array）是一组能通过 shared memory 与 barrier（同步栅栏）协作的 thread；**grid** 是这次 launch 的全部 block。硬件侧，**SM**（Streaming Multiprocessor）是调度与执行的基本单元，一个 SM 同时驻留多个 block；每个 block 又被切成 **warp**，NVIDIA GPU 上通常是 32 个 thread 一组，以 warp 为单位取指与调度。
 
 一个最小的 vector add 足以看清索引关系：
 
@@ -31,7 +31,7 @@ __global__ void add(const float* a, const float* b, float* c, int n) {
 // launch: add<<<(n + 255) / 256, 256>>>(a, b, c, n);
 ```
 
-`blockDim.x` 是每 block 的 thread 数，`blockIdx.x` 是 block 编号，`gridDim.x` 是 block 总数。launch 配置不是「越大越好」：block 太小，调度开销与边界浪费增加；block 太大，register 与 shared memory 压力会让每个 SM 能驻留的 block 变少。**occupancy** 就是「实际驻留的 warp 数 / SM 支持的最大 warp 数」，它决定有多少 warp 可以用来掩盖延迟，但不直接等于性能。
+`blockDim.x` 是每 block 的 thread 数，`blockIdx.x` 是 block 编号，`gridDim.x` 是 block 总数。launch 配置不是「越大越好」：block 太小，调度开销与边界浪费增加；block 太大，register 与 shared memory 压力会让每个 SM 能驻留的 block 变少。**occupancy（占用率）** 就是「实际驻留的 warp 数 / SM 支持的最大 warp 数」，它决定有多少 warp 可以用来掩盖延迟，但不直接等于性能。
 
 | 概念 | 含义 | 常见误读 |
 | --- | --- | --- |
@@ -41,17 +41,27 @@ __global__ void add(const float* a, const float* b, float* c, int n) {
 | SM | 执行 block 的硬件单元，含多个 warp scheduler | 把 SM 数当成「核心数」 |
 | grid | 一次 launch 的全部 block | 忽略 grid 太小会留下空闲 SM |
 
-以 Blackwell 为例，[ncu-report skill](https://github.com/mit-han-lab/ncu-report-skill) 的文档写明其针对 B200（sm_100）与 B300（sm_103），两者各 148 个 SM；不同型号、不同 MIG 配置的 SM 数不同，写死数字没有意义，判断方法才重要：`grid_size` 是否足以填满 SM、每个 SM 能驻留多少 block、最后一波是否只剩少量 block。这些会在 ncu 六维里展开。
+以 Blackwell 为例，[ncu-report skill](https://github.com/mit-han-lab/ncu-report-skill) 的文档写明其针对 B200（sm_100）与 B300（sm_103）；不同型号、不同 MIG 配置的 SM 数不同，写死数字没有意义，判断方法才重要：`grid_size` 是否足以填满 SM、每个 SM 能驻留多少 block、最后一波是否只剩少量 block。这些会在 ncu 六维里展开。
 
 ## 内存层级：性能问题多数在这里
 
 GPU 的存储层级可以粗略理解为：register（线程私有，最快）→ shared memory（block 内共享）与 L1（SM 内缓存）→ L2（芯片级共享缓存，具体分区随架构而定）→ HBM（显存，容量大但延迟高）。一个 kernel 的性能，很大程度上取决于它**搬了多少字节、这些字节是否被复用、访问是否连续**。
 
+| 层级 | 可见范围 | 容量量级 | 相对延迟 | 主要用途 |
+| --- | --- | --- | --- | --- |
+| register | 单个 thread | 每线程数十到数百个 | 最低 | 累加器、循环变量 |
+| shared memory | 同一 block | 每 block 几十 KB 到两百多 KB | 低 | block 内复用、tile 缓存 |
+| L1 | 同一 SM | 与 shared memory 共享片上容量 | 较低 | 硬件缓存，命中即复用 |
+| L2 | 整个 GPU | 几十到上百 MB | 中等 | 跨 block、跨 SM 复用 |
+| HBM | 整个 GPU | 数十到数百 GB | 最高 | 存放张量主体，靠合并访问与预取 |
+
+具体数值随架构、型号与 MIG 配置变化；register 按线程计，shared memory 按 block 计，L2 与 HBM 按整卡计。这里只给相对关系，不要背死数字，记住「谁能复用谁、复用几次」更重要。
+
 三个直接后果：
 
-1. **合并访问（coalescing）**：一个 warp 的 32 个 thread 如果访问连续地址，硬件可以把它们合并成少量内存事务；如果地址跳跃，就会产生大量无用 sector。矩阵按行还是按列读，往往决定几倍差距。
+1. **合并访问（coalescing）**：一个 warp 的 32 个 thread 如果访问连续地址，硬件可以把它们合并成少量内存事务；如果地址跳跃，就会产生大量无用 sector（内存事务的传输单元）。矩阵按行还是按列读，往往决定几倍差距。
 2. **复用决定层级**：能被多个 thread 复用的数据放 shared memory；只读一次的流式数据没必要占 shared memory；跨 block 复用的数据依赖 L2。
-3. **算术强度决定上限**：算术强度（arithmetic intensity）是「每搬运 1 字节做了多少 FLOP」。它把「计算」和「搬数」放在同一把尺子上，这就是 roofline 模型。
+3. **算术强度决定上限**：算术强度（arithmetic intensity）是「每搬运 1 字节做了多少 FLOP」。它把「计算」和「搬数」放在同一把尺子上，这就是 roofline（屋顶线模型）。
 
 roofline 的简化形式是：
 
@@ -59,13 +69,13 @@ roofline 的简化形式是：
 可达性能 = min(峰值算力, 峰值带宽 × 算术强度)
 ```
 
-当算术强度低时，性能被带宽压住，叫 **memory-bound**；当算术强度高时，性能被算力压住，叫 **compute-bound**。两者的分界点叫 ridge point。举个纯教学例子：假设一块「示例 GPU」有 100 TFLOPS 的 BF16 算力和 2 TB/s 带宽，ridge point 是 50 FLOP/B；算术强度 10 FLOP/B 的算子最多跑到 20 TFLOPS，再怎么优化指令也突破不了带宽；算术强度 100 FLOP/B 的算子才可能吃满算力。以上数字是**示例数据**，只用于说明模型，不代表任何真实 GPU。
+当算术强度低时，性能被带宽压住，叫 **memory-bound（访存受限）**；当算术强度高时，性能被算力压住，叫 **compute-bound（计算受限）**。两者的分界点叫 ridge point（拐点，即算力上界与带宽上界的交点）。举个纯教学例子：假设一块「示例 GPU」有 100 TFLOPS 的 BF16 算力和 2 TB/s 带宽，ridge point 是 50 FLOP/B；算术强度 10 FLOP/B 的算子最多跑到 20 TFLOPS，再怎么优化指令也突破不了带宽；算术强度 100 FLOP/B 的算子才可能吃满算力。以上数字是**示例数据**，只用于说明模型，不代表任何真实 GPU。
 
 这也解释了为什么「优化」必须先判断瓶颈类型：memory-bound 的 kernel 去调 tensor core 指令，通常没有收益；compute-bound 的 kernel 去加 prefetch，也可能只是让数据更早到达、继续等计算。
 
 ## prefill 与 decode：同一个模型，两种性能问题
 
-在大模型推理里，prefill 一次处理整段 prompt，token 之间可以并行，矩阵乘的维度大，通常是 **compute-bound**，优化重点是 tile 形状、MMA 利用率、融合与并行切分。decode 每次只生成一个 token，序列维度退化为 1，GEMM 变成 GEMV 或小矩阵乘，算术强度骤降，通常是 **memory-bound**，瓶颈在权重读取与 KV cache 带宽，优化重点是减少搬运、提高 occupancy、隐藏延迟。
+在大模型推理里，prefill（预填充）一次处理整段 prompt，token 之间可以并行，矩阵乘的维度大，通常是 **compute-bound**，优化重点是 tile（分块）形状、MMA（矩阵乘加指令，tensor core 执行的就是它）利用率、融合与并行切分。decode（解码）每次只生成一个 token，序列维度退化为 1，GEMM（通用矩阵乘）变成 GEMV（矩阵-向量乘）或小矩阵乘，算术强度骤降，通常是 **memory-bound**，瓶颈在权重读取与 KV cache（键值缓存）带宽，优化重点是减少搬运、提高 occupancy、隐藏延迟。
 
 | 维度 | prefill | decode |
 | --- | --- | --- |
@@ -79,9 +89,9 @@ roofline 的简化形式是：
 
 ## fusion、dtype 与 shape
 
-**fusion（算子融合）** 的价值来自减少 HBM 往返和 launch 开销。例如把 bias、激活、残差加进 GEMM 的 epilogue，省掉一次写回再读出的完整张量。但 fusion 不是免费的：它增加 register 与 shared memory 压力，可能降低 occupancy；它改变计算顺序，可能影响数值结果；它要求参与融合的算子有相容的迭代空间、dtype 与布局。一个 fusion 在某个 dtype/shape 下成立，换一个形状就可能因为 tail 处理或寄存器溢出而变慢。KernelWiki 这类知识库之所以有用，正是因为它把「什么条件下成立」沉淀下来，而不是只给一个结论。
+**fusion（算子融合）** 的价值来自减少 HBM 往返和 launch 开销。例如把 bias、激活、残差加进 GEMM 的 epilogue（主循环之后的收尾计算），省掉一次写回再读出的完整张量。但 fusion 不是免费的：它增加 register 与 shared memory 压力，可能降低 occupancy；它改变计算顺序，可能影响数值结果；它要求参与融合的算子有相容的迭代空间、dtype 与布局。一个 fusion 在某个 dtype/shape 下成立，换一个形状就可能因为 tail 处理或寄存器溢出而变慢。KernelWiki 这类领域知识库与 skill 之所以有用，正是因为它们把「什么条件下成立」沉淀下来，而不是只给一个结论。
 
-**dtype** 同时影响速度、显存和正确性。FP32 精度高但吞吐低；TF32/BF16/FP16 通过 tensor core 提升吞吐；FP8/FP4 进一步压缩带宽，但需要 scaling、累加精度与更宽松的容差。降低精度不是「免费的加速」：如果参考实现是 FP32，而候选用 BF16 输入/输出或低精度累加，误差可能超出任务容差；反过来，若任务允许 BF16，坚持 FP32 比较就是人为制造慢 baseline。
+**dtype** 同时影响速度、显存和正确性。FP32 精度高但吞吐低；TF32/BF16/FP16 通过 tensor core 提升吞吐；FP8/FP4 进一步降低显存占用与带宽需求，但需要 scaling、累加精度与更宽松的容差。降低精度不是「免费的加速」：如果参考实现是 FP32，而候选用 BF16 输入/输出或低精度累加，误差可能超出任务容差；反过来，若任务允许 BF16，坚持 FP32 比较就是人为制造慢 baseline（基线实现）。
 
 **shape** 决定一切。M/N/K 是否能被 tile 整除、head_dim 是否为 64/128、序列是否变长、batch 是否连续，都会改变最优 block 大小与数据布局。专用 kernel 可以针对一个 shape 做到极致，但任务合同必须写明「所有合法输入都要正确」。KDA 官方博客在 KDA² 实验中就强调：允许按 shape 特化，但不允许在任何合法输入上出错。
 
@@ -96,17 +106,20 @@ Nsight Compute（ncu）是 NVIDIA 的 kernel profiler。它能在不修改源码
 | 维度 | 要回答的问题 | 关键读数 | 常见动作 |
 | --- | --- | --- | --- |
 | 1 occupancy 与 launch 几何 | grid 够不够大？occupancy 被什么限制？ | grid/block、waves per SM、register/shared 限制、理论/实际 occupancy | 调 block、`__launch_bounds__`、减少寄存器 |
-| 2 tail effect | 是否有少数 block 拖尾？ | 每 SM active cycles 的最大/最小、PM 采样时间线 | 切分变长任务、work stealing、增加并行度 |
-| 3 stall reason | warp 不发射时在等什么？ | long/short scoreboard、barrier、math pipe throttle、逐行采样 | 合并访存、加 ILP、减少同步 |
-| 4 tensor core 利用率 | 矩阵乘形状的 kernel 用上 MMA 了吗？ | tensor pipe active、HMMA/UTCMMA 指令数 | 改 tile、用 CUTLASS/CuTe、检查 dtype |
+| 2 tail effect（拖尾） | 是否有少数 block 拖尾？ | 每 SM active cycles 的最大/最小、PM sampling（周期采样）时间线 | 切分变长任务、work stealing（工作窃取）、增加并行度 |
+| 3 stall reason（停顿原因） | warp 不发射时在等什么？ | long/short scoreboard、barrier、math pipe throttle（数学流水线受限）、逐行采样 | 合并访存、加 ILP（指令级并行）、减少同步 |
+| 4 tensor core 利用率 | 矩阵乘形状的 kernel 用上 MMA 了吗？ | tensor pipe active、HMMA（warp 级 MMA）/UTCMMA（tcgen05 MMA）指令数 | 改 tile、用 CUTLASS/CuTe、检查 dtype |
 | 5 SM 时间线 | 整个 kernel 的利用是否平稳？ | SM active、DRAM throughput 随时间变化 | 修 pipeline、双缓冲、消除气泡 |
 | 6 memory/cache | 带宽打满了吗？cache 是否有效？ | DRAM 吞吐、L2 命中、读写字节 | 合并访问、提高复用、改布局 |
+
+表里有两个关键词需要先解释。**scoreboard** 是 GPU 跟踪内存依赖的记分板：warp 发出访存后，若数据还没返回，就停在 scoreboard 上等待；等全局或本地内存叫 **long scoreboard**，等 shared memory 这类短延迟操作叫 **short scoreboard**，前者通常指向访存延迟或带宽，后者常与 bank 冲突、同步或 shared memory 压力有关。**waves per SM** 则是「填满所有 SM 需要几波 block」：总 block 数 ÷（SM 数 × 每 SM 可驻留 block 数）。小于 1 说明有 SM 全程没活干，1 到 2 之间要警惕最后一波拖尾。
 
 几个判断原则值得先记住：
 
 - **waves per SM 小于 1**：grid 太小，部分 SM 全程空闲；先加并行度，再谈指令优化。
 - **waves per SM 在 1 到 2 之间**：很可能有 tail wave；看最后一波占整个 kernel 时间的比例。
 - **理论 occupancy 100% 但实际很低**：瓶颈更可能在 stall 或 tail，不在 launch 配置；去第 3、5 维。
+- **not_selected 占比高**：warp 已就绪、只是没被调度器选中，通常说明并发 warp 足够，不是内存或同步瓶颈；先看其他 stall 原因。
 - **long scoreboard 占比高**：在等全局内存；先看第 6 维的访问模式，再考虑 prefetch 或更多并发 warp。
 - **tensor core 为 0% 且算子是矩阵乘形状**：大概率漏掉了 MMA；但如果形状很小或极不规则，强行上 tensor core 未必划算。
 
@@ -120,7 +133,7 @@ ncu --set full --target-processes all \
 ncu --import profile/attn_decode.ncu-rep --page details
 ```
 
-`--set full` 采集的计数器多、开销大，适合定位问题；日常迭代可以先用较小的 section，确认方向后再采全量。ncu 的耗时不是生产耗时，clock control 也会改变频率，所以**不要用 ncu 的 duration 直接算 speedup**；性能数字应来自独立 benchmark。
+`--set full` 采集的计数器多、开销大，适合定位问题；日常迭代可以先用较小的 section，确认方向后再采全量。ncu 的耗时不是生产耗时，clock control 也会改变频率，所以**不要用 ncu 的 duration 直接算 speedup（加速比）**；性能数字应来自独立 benchmark。
 
 ### 一份示例 ncu 摘要（示例数据）
 
@@ -128,8 +141,8 @@ ncu --import profile/attn_decode.ncu-rep --page details
 
 | 维度 | 示例读数 | 解读 |
 | --- | --- | --- |
-| launch 几何 | 2048 blocks × 128 threads；每 SM 最多 8 blocks；148 SMs；约 1.73 waves；理论 occupancy 50%（register 限制），实际 37.5% | grid 不算小，但最后一波只覆盖约 73% 的 SM；occupancy 被寄存器压住 |
-| tail effect | 每 SM active cycles 最大高于均值 18%，最低低于均值 41%；最后 28% 时间 SM 活跃度低于 45% | 存在明显拖尾，变长 KV 使部分 CTA 工作更重 |
+| launch 几何 | 2048 blocks × 128 threads；每 SM 最多 8 blocks；148 SMs；约 1.73 waves；理论 occupancy 50%（register 限制），实际 37.5% | grid 不算小，但最后一波只填满约 73% 的 block 槽位（每 SM 约 5.8/8 个 block）；occupancy 被寄存器压住 |
+| tail effect | 每 SM active cycles 最大高于均值 18%，最低低于均值 41%；最后 28% 时间 SM 活跃度低于 45% | 存在明显拖尾，KV 分块后各 CTA 的工作量不均 |
 | stall reason | long scoreboard 44% 采样，barrier 9%，not_selected 6% | 主要在等全局内存，不是同步或发射瓶颈 |
 | tensor core | tensor pipe active 8% | decode 的小矩阵乘没有吃满 MMA，但当前瓶颈不在这里 |
 | SM 时间线 | 前段平稳，后段缓慢下降；DRAM 吞吐 71%，SM 活跃 38% | 典型「高吞吐 + 长尾」，不是 grid 太小 |
@@ -145,10 +158,10 @@ ncu --import profile/attn_decode.ncu-rep --page details
 
 - **baseline 必须是任务开始时固定的实现**，带 commit、编译选项、dtype 与运行命令。Agent 不能中途把 baseline 换成自己的第一版。
 - **计时口径要一致**：kernel-only 对 kernel-only，端到端对端到端；warmup、重复次数、取中位数还是最大值、是否用 CUDA Graph，都要写清。
-- **不要只报最好一次**：GPU 有时钟波动与噪声，至少报中位数与 p90；只报 best 容易把噪声当优化。
+- **不要只报最好一次**：GPU 有时钟波动与噪声，至少报中位数与 p90（90 分位耗时）；只报 best 容易把噪声当优化。
 - **跨硬件/跨版本不可直接比**：B200 与 B300、CUDA 12 与 13、不同 driver，结果不可平移。
-- **正确性必须先过**：更快但误差超标的候选不是优化，是另一种实现；[KDA 官方博客](https://nvlabs.github.io/kda/blog/2026-09-27-kda-for-kda/)里 CuTe 版本为了正确性去掉 FP16 decay table，接受了约 2% 的速度损失（2026-09-27），这就是明确的取舍。
-- **比较对象要同层级**：KDA v0.5 的 1.688×、1.408×、1.173× 是相对 MLSys 2026 FlashInfer 竞赛三位获奖者的**公开实现**，在 B200 + CUDA 13 + CuTe-DSL 条件下测得（来源与日期见第 4 章）；它不是「比所有人类实现快 1.688 倍」，也不是「在任何 GPU 上都成立」。
+- **正确性必须先过**：更快但误差超标的候选不是优化，是另一种实现；[KDA 官方博客](https://nvlabs.github.io/kda/blog/2026-09-27-kda-for-kda/)里 CuTe 版本为了正确性去掉 FP16 衰减表（decay table），接受了约 2% 的速度损失（2026-09-27），这就是明确的取舍。
+- **比较对象要同层级**：KDA v0.5 的 1.688×、1.408×、1.173× 是相对 MLSys 2026 FlashInfer 竞赛三位获奖者的**公开实现**，在 B200 + CUDA 13 + CuTe-DSL 条件下测得（来源为 [KDA v0.5 报道](https://m.163.com/dy/article/L7GV5BV30556KHRQ.html)，2026-09-23；也可参见 [KDA 案例](/guide/kda/)）；它不是「比所有人类实现快 1.688 倍」，也不是「在任何 GPU 上都成立」。
 - **口径不同的数字不能并列**：TIRx 在 KDA workload 上报告 forward 2.94×、backward 6.84×、MSA prefill 2.59×（几何平均，来源为 [MLC TIRx 博客](https://blog.mlc.ai/2026/09/29/tirx-harness-an-open-compiler-harness-for-agentic-gpu-programming)，2026-09-29）。它与 KDA v0.5 的三个数字 baseline 不同、任务不同，只能各自在自己的比较框架内解读。
 
 <Aside type="note" title="读 speedup 时先问三句">

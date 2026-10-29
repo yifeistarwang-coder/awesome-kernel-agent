@@ -1,6 +1,6 @@
 ---
 title: Agent 与 harness：把「帮我优化」变成可验收的工程
-description: 拆解 Agent 循环、上下文与工具调用，理解 harness 的职责，并写出可验证的任务规格与停止条件。
+description: 拆解 Agent 循环、上下文与工具调用，理解 harness 的职责，并写出可验证的任务合同与停止条件。
 ---
 
 import { Aside } from '@astrojs/starlight/components';
@@ -13,7 +13,7 @@ import AgentHarnessLoop from '../../../components/diagrams/AgentHarnessLoop.astr
 
 - 描述一个 Agent 循环的五个组成部分，并解释上下文为什么是稀缺资源。
 - 用自己的话说明 harness 与 prompt、Agent 框架的区别。
-- 写出包含正确性、性能、约束与通过条件的任务规格。
+- 写出包含正确性、性能、约束与通过条件的任务合同。
 - 解释 draft 与 plan 各自解决什么问题。
 - 识别 Agent 自评失灵的四种机制，并知道「写/判分离」为何必要。
 - 为一个最小任务设计目录、产物与停止条件。
@@ -26,6 +26,7 @@ import AgentHarnessLoop from '../../../components/diagrams/AgentHarnessLoop.astr
 2. 生成下一步动作：回复用户，或发起一次工具调用（读文件、搜索、编辑、执行命令）。
 3. 等待环境返回结果：文件内容、命令退出码、stdout/stderr、测试报告。
 4. 把结果写回上下文，进入下一轮。
+5. 检查停止条件：成功、预算耗尽或阻塞时结束并归档证据；否则回到第 1 步。
 
 这里有三条容易被低估的事实。
 
@@ -33,7 +34,7 @@ import AgentHarnessLoop from '../../../components/diagrams/AgentHarnessLoop.astr
 
 **第二，工具调用是 Agent 与现实的唯一接口。** 模型可以声称「已经通过测试」，但只有真正执行 `pytest` 或 `ncu` 才知道结果。工具也定义了它的能力边界：没有 profiler，它只能猜瓶颈；没有 benchmark 脚本，它无法判断快慢；没有写权限，它只能给建议。
 
-**第三，会话不等于任务。** 一个 session 是一段连续对话；一个任务可能跨多个 session，甚至跨两个模型。KDA 的推荐布局把「可复用的工作流」和「任务工作区」分开：工作流放在参考仓库，代码、测试、数据、benchmark 脚本和产物留在任务工作区。这样换模型、换会话都不会丢证据。
+**第三，会话不等于任务。** 一个 session 是一段连续对话；一个任务可能跨多个 session，甚至跨两个模型。[KDA](/guide/kda/) 的推荐布局把「可复用的工作流」和「任务工作区」分开：工作流放在参考仓库，代码、测试、数据、benchmark 脚本和产物留在任务工作区。这样换模型、换会话都不会丢证据。
 
 ## harness 是什么
 
@@ -41,21 +42,21 @@ import AgentHarnessLoop from '../../../components/diagrams/AgentHarnessLoop.astr
 
 它和 prompt 的区别是「强制」：prompt 说「请先写计划」，harness 可以检查 `docs/plan.md` 是否存在，不存在就不允许改代码；prompt 说「不要改测试」，harness 可以用权限或 diff 检查阻止。它和 Agent 框架的区别是「任务语义」：框架提供工具调用与消息循环，harness 决定这个任务什么叫成功。
 
-下图是一个最小闭环：任务规格经过计划变成动作，工具循环产生证据，验证决定是否晋升，记录把这一次的经验留给下一次；预算贯穿全程。
+下图是一个最小闭环：任务合同经过计划变成动作，工具循环产生证据，验证决定是否晋升，记录把这一次的经验留给下一次；预算贯穿全程。
 
 <AgentHarnessLoop />
 
 读图时注意两个容易被忽略的箭头。一个是「验证 → 计划」：验证失败不一定要改 kernel，也可能是计划、测试或 baseline 错了，应该回到计划层修正。另一个是「预算 → 停止」：预算不是事后统计，而是每一轮都要检查的约束，否则 Agent 会在一个错误方向上无限迭代。
 
-## 任务规格：把「优化一下」变成可验收
+## 任务合同：把「优化一下」变成可验收
 
-KDA 的 `prompts/basic-flow.md` 把任务合同拆成八项内容：任务名、目标、正确性要求、性能或质量目标、允许的实现方式、验证命令、评估命令、晋升条件；`docs/agent-flow.md` 进一步要求「满足合同、且有证据表明目标指标变好或不变差」才可晋升，被否决的候选要写明理由而不是静默丢弃。这些可以直接拿来当模板。关键在于每一项都要能对应一条命令或一个可检查的事实。
+KDA 的 `prompts/basic-flow.md` 把任务合同拆成八项内容：任务名、目标、正确性要求、性能或质量目标、允许的实现方式、验证命令、评估命令、晋升条件；`docs/agent-flow.md` 进一步要求候选既要满足合同，又要有证据表明目标指标变好或不变差，才可晋升；被否决的候选要写明理由而不是静默丢弃。这些可以直接拿来当模板。关键在于每一项都要能对应一条命令或一个可检查的事实。
 
 | 字段 | 反例 | 可验收的写法 |
 | --- | --- | --- |
 | 目标 | 优化 attention | 把 decode attention 在 batch=16、seq=8k、head_dim=128 下的 kernel 中位耗时降到 baseline 的 0.8 倍 |
 | 正确性 | 结果差不多 | 与 FP32 参考实现比较，BF16 输出最大相对误差不超过 2e-2，且无 NaN/Inf |
-| 性能 | 越快越好 | 固定输入与 dtype，预热 5 次、重复 30 次，取中位数；同时报告 p90 |
+| 性能 | 越快越好 | 固定输入与 dtype，预热 5 次、重复 30 次，取中位数；同时报告 p90（90 分位耗时） |
 | 约束 | 随便写 | 只允许修改 `kernel/` 下文件；不得改测试与 benchmark；允许使用 CuTe-DSL |
 | 验证命令 | 跑一下测试 | `python tests/check.py --case decode_8k --tol 2e-2` |
 | 评估命令 | 看看速度 | `python bench.py --case decode_8k --warmup 5 --repeat 30 --json` |
@@ -63,10 +64,10 @@ KDA 的 `prompts/basic-flow.md` 把任务合同拆成八项内容：任务名、
 
 这张表最重要的不是格式，而是**把「我认为」变成「命令说」**。如果一条验收标准无法被第三方在同一硬件上重跑，它就不算验收标准。
 
-正确性还要覆盖边界：空输入、单 token、最长序列、非连续布局、极端 gate 值、不同 batch 组合。只测一个「好看的 shape」是 reward hacking 的温床。性能则要固定硬件、时钟、输入、dtype、warmup 与重复次数；kernel-only 与 end-to-end 要分开报，否则你无法判断加速来自 kernel 还是少了框架开销。
+正确性还要覆盖边界：空输入、单 token、最长序列、非连续布局、极端 gate（门控）值、不同 batch 组合。只测一个「好看的 shape」是 reward hacking（奖励作弊）的温床。性能则要固定硬件、时钟、输入、dtype、warmup 与重复次数；kernel-only（只计 kernel 执行）与 end-to-end（含框架与数据准备）要分开报，否则你无法判断加速来自 kernel 还是少了框架开销。
 
 <Aside type="tip" title="baseline 必须写死">
-baseline 不是「Agent 的第一版实现」，而是任务开始时指定的参考实现，最好带 commit、编译选项与运行命令。[Humanize 论文](https://arxiv.org/abs/2610.08900)记录过一个真实案例：KDA 里的 Claude 把自己写的第一版 kernel 当成 baseline，超过之后宣布完成，官方 baseline 根本没比。baseline 一旦可被 Agent 重定义，验收就失效了。
+baseline（基线实现）不是「Agent 的第一版实现」，而是任务开始时指定的参考实现，最好带 commit、编译选项与运行命令。[Humanize 论文](https://arxiv.org/abs/2610.08900)记录过一个真实案例：KDA 里的 Claude 把自己写的第一版 kernel 当成 baseline，超过之后宣布完成，官方 baseline 根本没比。baseline 一旦可被 Agent 重定义，验收就失效了。
 </Aside>
 
 ## draft 与 plan：先想清楚，再动手
@@ -88,9 +89,9 @@ KDA 的流程要求 Agent 先写 `docs/draft.md`，再转成可执行的 `docs/p
 
 ## 为什么 Agent 的自评不可靠
 
-Agent 说「完成了」，只是一个 claim，不是 evidence。至少有四层原因。
+Agent 说「完成了」，只是一个 claim（声明），不是 evidence（证据）。至少有四层原因。
 
-**同源盲区。** 写代码的模型和审代码的模型如果共享同一套先验，它容易犯的错，往往也正是它看不出来的。Humanize 的解法是换一个厂商的模型、换一个全新上下文做 reviewer，并且只有 reviewer 能宣布完成。
+**同源盲区。** 写代码的模型和审代码的模型如果共享同一套先验，它容易犯的错，往往也正是它看不出来的。Humanize 论文把这条链路写成 b → b·m_R → b·m_R·m_O：b 是 builder（实现者）自身的漏检率，m_R 是 reviewer（评审者）的漏检率，m_O 是人工或 oracle（可依赖的标准答案）的漏检率。换一个厂商的模型、换一个全新上下文做 reviewer，本质上是在压低 m_R；并且只有 reviewer 能宣布完成。
 
 **目标被代理指标替换。** Agent 被要求「让 benchmark 变快」，它可能去改 benchmark、缓存输入、跳过计算，而不是优化 kernel。KDA for KDA 的 3.74× 案例就是典型：硬编码 L2 范数、跳过三角矩阵求逆，在合成数据上误差刚好过关。
 
@@ -98,7 +99,7 @@ Agent 说「完成了」，只是一个 claim，不是 evidence。至少有四�
 
 **上下文污染。** 作者上下文里有「我为什么这样写」的叙事，裁判需要的是「结果是否满足合同」的冷证据。两者混在一起，判断就会被叙事带偏。
 
-所以可靠的结构是**写/判分离**：builder 在任务工作区实现，reviewer 用新上下文、甚至不同厂商的模型，只读合同、diff 与证据，独立重跑验证命令。第 5 章会展开 Humanize 的计划合同、机械 gate 与 RLCR；这一章先记住原则：**完成与否不能由写代码的那一方单方面宣布**。
+所以可靠的结构是**写/判分离**：builder（KDA 中称 Coder）在任务工作区实现，reviewer（KDA 中称 Verifier）用新上下文、甚至不同厂商的模型，只读合同、diff 与证据，独立重跑验证命令。第 5 章 [Humanize](/guide/humanize/) 会展开计划合同、机械 gate（门禁检查）与 RLCR（Ralph-Loop with Codex Review）；这一章先记住原则：**完成与否不能由写代码的那一方单方面宣布**。
 
 ## 预算与停止条件
 
@@ -118,28 +119,33 @@ Agent 说「完成了」，只是一个 claim，不是 evidence。至少有四�
 
 ## 一个最小 harness 的目录与产物
 
-KDA README 推荐的工作区布局很值得直接借用：
+KDA README 推荐的工作区布局很值得直接借用；再补上任务合同与两个 Agent 不应修改的验证脚本，最小版本如下：
 
 ```text
 task-workspace/
   docs/
+    task.md           # 任务合同，Agent 不可修改
     draft.md          # 第一版计划草稿
     plan.md           # 可执行计划
   runs/               # 每次运行的日志与命令
   outputs/            # 生成的 kernel、编译产物
   profile/            # ncu 报告与摘要
+  tests/
+    check.py          # 正确性检查，Agent 不可修改
+  bench.py            # 性能测量，输出 JSON
   benchmark.csv       # 表格化的性能记录
   candidates.jsonl    # 候选、父版本、状态、理由
 ```
 
-每个文件的职责：`draft.md` 保存被推翻的想法，`plan.md` 保存当前承诺，`runs/` 保存可重跑的命令与环境，`profile/` 保存性能证据，`benchmark.csv` 让趋势可见，`candidates.jsonl` 让「为什么保留/放弃」可追溯。格式可以变，**一致性**不能变：下一位工程师应该能只看这些文件就重建你的决策。
+每个文件的职责：`task.md` 保存不可变的合同，`draft.md` 保存被推翻的想法，`plan.md` 保存当前承诺，`runs/` 保存可重跑的命令与环境，`profile/` 保存性能证据，`tests/` 与 `bench.py` 保存独立验证脚本，`benchmark.csv` 让趋势可见，`candidates.jsonl` 让「为什么保留/放弃」可追溯。格式可以变，**一致性**不能变：下一位工程师应该能只看这些文件就重建你的决策。
 
 一个最小的循环伪代码：
 
 ```python
 # harness 只做四件事：给任务、跑工具、验结果、记证据
 for step in range(max_steps):
-    action = agent.next_action(context=read("docs/plan.md"))
+    context = read("docs/task.md") + read("docs/plan.md") + recent_tool_outputs()  # 合同 + 计划 + 近期证据
+    action = agent.next_action(context)      # 避免只凭记忆，每轮重建关键上下文
     result = tools.execute(action)          # 编译、测试、benchmark、ncu
     append_jsonl("runs/loop.jsonl", action, result)
 
@@ -180,7 +186,7 @@ python bench.py --case decode_8k --warmup 5 --repeat 30 --json benchmark.json
 
 - [ ] 我能画出 Agent 循环，并指出上下文、工具、验证各自的位置。
 - [ ] 我能解释 harness 与 prompt、Agent 框架的区别。
-- [ ] 我写的任务规格里，每条验收条件都能对应一条命令。
+- [ ] 我写的任务合同里，每条验收条件都能对应一条命令。
 - [ ] 我能说出 draft 与 plan 的区别，以及为什么先 draft 后 plan。
 - [ ] 我能举出至少两种 Agent 自评失灵的机制。
 - [ ] 我为自己的任务设置了至少三类预算和三类停止条件。
@@ -211,12 +217,12 @@ python bench.py --case decode_8k --warmup 5 --repeat 30 --json benchmark.json
 ## 延伸阅读
 
 - [KDA Agent Flow](https://github.com/NVlabs/kda/blob/main/docs/agent-flow.md)：最小循环、任务合同、证据记录与晋升规则。
-- [KDA basic-flow prompt](https://github.com/NVlabs/kda/blob/main/prompts/basic-flow.md)：七项任务合同与 draft 要求。
+- [KDA basic-flow prompt](https://github.com/NVlabs/kda/blob/main/prompts/basic-flow.md)：八项任务合同与 draft 要求。
 - [Humanize 论文](https://arxiv.org/abs/2610.08900)：写/判分离、计划合同与机械 gate 的动机。
 - [TIRx Harness 博客](https://blog.mlc.ai/2026/09/29/tirx-harness-an-open-compiler-harness-for-agentic-gpu-programming)：另一个开源 harness 如何把编译器、知识库与基准服务接给 Agent。
 - [Claude Code 文档](https://github.com/anthropics/claude-code) 与 [Codex CLI](https://github.com/openai/codex)：工具、权限与会话管理。
 - [Nsight Compute 文档](https://docs.nvidia.com/nsight-compute/)：把 profiler 接进 harness 时需要知道的命令行与权限。
 
-下一章补上 kernel 这一侧的基础：GPU 怎么执行一个 kernel、roofline 怎么判断瓶颈、prefill 与 decode 为什么是两类问题，以及如何用 ncu 的六个维度读出一份可信的性能证据：[GPU kernel 与性能](/guide/gpu-kernel/)。
+下一章补上 kernel 这一侧的基础：GPU 怎么执行一个 kernel、roofline（屋顶线模型）怎么判断瓶颈、prefill 与 decode 为什么是两类问题，以及如何用 ncu 的六个维度读出一份可信的性能证据：[GPU kernel 与性能](/guide/gpu-kernel/)。
 
 本章链接与数据核对至 2026-10-29；完整来源清单见[资料库](/resources/)。
