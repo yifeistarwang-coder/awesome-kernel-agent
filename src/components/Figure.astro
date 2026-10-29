@@ -12,12 +12,51 @@ const { caption } = Astro.props;
 			<slot />
 		</div>
 	</div>
+	<button type="button" class="ka-figure-more" aria-label="向右滚动查看完整图">
+		<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+			<path d="M5 12h14M13 6l6 6-6 6" />
+		</svg>
+	</button>
 	<figcaption>
 		<span class="ka-figure-mark" aria-hidden="true">图</span>
 		<span class="ka-figure-caption">{caption}</span>
 		<span class="ka-figure-hint" aria-hidden="true">横向滑动查看完整图 →</span>
 	</figcaption>
 </figure>
+
+<script>
+	function initFigureScroll() {
+		document.querySelectorAll<HTMLElement>('.ka-figure-scroll').forEach((scroll) => {
+			const figure = scroll.closest<HTMLElement>('.ka-figure');
+			const more = figure?.querySelector<HTMLButtonElement>('.ka-figure-more');
+			if (!figure || !more) return;
+
+			const update = () => {
+				const max = scroll.scrollWidth - scroll.clientWidth;
+				const atStart = scroll.scrollLeft <= 2;
+				const atEnd = scroll.scrollLeft >= max - 2;
+				figure.classList.toggle('is-at-start', atStart);
+				figure.classList.toggle('is-at-end', atEnd);
+				figure.classList.toggle('is-scrollable', max > 2);
+			};
+
+			scroll.removeEventListener('scroll', update);
+			scroll.addEventListener('scroll', update, { passive: true });
+			window.removeEventListener('resize', update);
+			window.addEventListener('resize', update, { passive: true });
+
+			more.removeEventListener('click', onClick);
+			more.addEventListener('click', onClick);
+			function onClick() {
+				const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+				scroll.scrollBy({ left: scroll.clientWidth * 0.85, behavior: reduce ? 'auto' : 'smooth' });
+			}
+
+			update();
+		});
+	}
+	initFigureScroll();
+</script>
 
 <style>
 	.ka-figure {
@@ -50,9 +89,61 @@ const { caption } = Astro.props;
 		padding: 0.9rem;
 		scrollbar-width: thin;
 		scrollbar-color: var(--ka-line-strong) transparent;
-		/* Edge fades hint that the diagram continues past the viewport. */
-		mask-image: linear-gradient(90deg, transparent 0, #000 1.25rem, #000 calc(100% - 1.25rem), transparent 100%);
-		-webkit-mask-image: linear-gradient(90deg, transparent 0, #000 1.25rem, #000 calc(100% - 1.25rem), transparent 100%);
+		/* Edge fades hint that the diagram continues past the viewport.
+		   Each side fades only while there is still content beyond it, so
+		   the fully-scrolled diagram ends on a crisp border instead of a
+		   fade that reads as clipping. */
+		mask-image: linear-gradient(90deg, transparent 0, #000 1.5rem, #000 calc(100% - 1.5rem), transparent 100%);
+		-webkit-mask-image: linear-gradient(90deg, transparent 0, #000 1.5rem, #000 calc(100% - 1.5rem), transparent 100%);
+	}
+
+	.ka-figure.is-at-start .ka-figure-scroll {
+		mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 1.5rem), transparent 100%);
+		-webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 1.5rem), transparent 100%);
+	}
+
+	.ka-figure.is-at-end .ka-figure-scroll {
+		mask-image: linear-gradient(90deg, transparent 0, #000 1.5rem, #000 100%);
+		-webkit-mask-image: linear-gradient(90deg, transparent 0, #000 1.5rem, #000 100%);
+	}
+
+	.ka-figure.is-at-start.is-at-end .ka-figure-scroll {
+		mask-image: none;
+		-webkit-mask-image: none;
+	}
+
+	.ka-figure-more {
+		position: absolute;
+		top: 50%;
+		right: 0.55rem;
+		display: grid;
+		place-items: center;
+		width: 2rem;
+		height: 2rem;
+		margin-top: -1rem;
+		border: 1px solid var(--ka-line-strong);
+		border-radius: 50%;
+		background: color-mix(in srgb, var(--ka-dg-surface) 88%, transparent);
+		color: var(--ka-teal);
+		cursor: pointer;
+		opacity: 0;
+		visibility: hidden;
+		transition: opacity 0.18s ease, visibility 0.18s ease;
+	}
+
+	.ka-figure.is-scrollable:not(.is-at-end) .ka-figure-more {
+		opacity: 1;
+		visibility: visible;
+	}
+
+	.ka-figure-more:hover {
+		border-color: var(--ka-teal);
+		background: var(--ka-teal-soft);
+	}
+
+	.ka-figure-more:focus-visible {
+		outline: 2px solid var(--ka-focus);
+		outline-offset: 2px;
 	}
 
 	.ka-figure-scroll:focus-visible {
