@@ -1,0 +1,170 @@
+---
+title: TIRx：编译器作为 Agent 的工具层
+description: 拆解 MLC 开源的 TIRx Harness：负载契约、编译期分析、知识库、基准服务与远程执行如何构成 Agent 手里的工具层，以及它的公开结果该怎么读。
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import Exercise from '../../../components/Exercise.astro';
+import TirxHarness from '../../../components/diagrams/TirxHarness.astro';
+
+前两章分别回答了「流程怎么排」和「判断怎么可靠」。但两个问题都默认了一件事：**Agent 手里有工具**。编译器能不能被当成一个可反复调用的分析器？参考实现能不能变成搜索空间的一部分？基准能不能在另一台机器上跑，而 Agent 还留在原地？本章用 MLC 开源的 TIRx Harness 做对照——一个把编译器本身变成 Agent 工具层的完整开源例子。
+
+## 学习目标
+
+- 分清 TIRx 编译器栈与 TIRx Harness 两件事。
+- 说清负载契约、TIRx-lite、编译期分析、知识库、基准服务、kcoral 各自解决什么问题。
+- 解释编译期分析能抓到哪些 benchmark 测不出来的问题。
+- 正确解读 TIRx 与 KDA 官方的两组加速比，说明为什么不能并列。
+- 为自己的 harness 列出一份工具层清单，并标出缺口。
+
+## 两条路线，只差一个词
+
+| 名字 | 是什么 | 主要面向 |
+| --- | --- | --- |
+| TIRx | 基于 Apache TVM 的硬件原生 ML kernel DSL 与编译器栈：写 kernel 的语言与编译器 | 手工写 kernel 的人、生成 kernel 的 Agent，以及把多段 kernel 融成 megakernel 的系统 |
+| TIRx Harness | 建在 TIRx 之上的 harness：编译器内核 + 知识库 + 工具 + 基准服务 | 让 Agent 写出正确且快的 GPU kernel 的那一层 |
+
+官方 README 对 Harness 的定义是「a compiler harness combining a minimal stable compiler foundation, a knowledge base, tools, and a benchmark server」。请注意这四样是并列关系：编译器只是其中一件，知识库与基准服务同样是必需品，缺了任何一件，Agent 都只能凭感觉判断。
+
+TIRx 这条路线有一个前提值得先说清楚：它不假设 Agent 直接写 CUDA C++，Agent 写的是 TIRx DSL，由编译器落到具体硬件。这带来两个后果。一是写法被约束在一套受控语法里，Agent 更难写出语法上就离谱的代码；二是每一步都有中间表示可以检查，**编译器知道得比 Agent 多**，这正是本章后半段要讲的分析能力的前提。
+
+## Harness 的工具层
+
+README 把 harness 的组成写成四件并列的东西：一个最小而稳定的编译器底座、一套知识库、一批工具，以及一个基准服务。往里再拆，那批「工具」具体是 TIRx-lite（写 kernel）、编译期分析与 kcoral（远程执行）三样；skills 负责教 Agent 怎么用它们，workload contract 负责定义正确性与性能。下面按层拆开。
+
+<TirxHarness />
+
+### 负载契约：先定义「什么算对」
+
+workload contract（负载契约）定义正确性与性能。官方文档把「新增一个 workload」单独写成一篇扩展指南（`development/add-workload`），说明契约是被当成独立对象来管理、可注册也可复用的，而不是每个任务临时写一段 prompt。
+
+这和第 2 章的任务合同是同一件事的两种形态：KDA 把合同写成一份不可修改的 Markdown 文档交给 Agent 读；Harness 把它作为一等对象注册，让编译、基准与判定都引用同一份定义。差别在于，后者不必依赖 Agent「自觉不改」——契约不在 Agent 的可写范围内，阈值被顺手放宽这件事在机制上就不该发生。
+
+### TIRx-lite：在中间表示上写 kernel
+
+TIRx-lite 是建在 TIRx 中间表示之上的领域特定语言（DSL），负责 kernel 创作，是 README「brings together」里列出的第一件工具（另两件是编译期分析与 kcoral）。它的取向很清楚：语言足够小，Agent 出错的空间小；又足够贴近硬件，不至于把性能控制权全部丢掉。
+
+### 编译期分析：把编译器变成检查器
+
+这是最值得学的一层。README 列出的能力有三类检查——同步（synchronization）、内存竞争（memory races）、数值行为（numerical behavior）——以及查看编译器输出与生成的 GPU 指令。
+
+这三件事恰好是 kernel 任务里 benchmark 最容易漏掉的：
+
+- **同步问题**通常不会立刻崩，而是表现为「偶尔慢一点」或「结果对但更慢」；
+- **内存竞争**是典型的假加速温床：不加同步，结果照样对，只是靠运气，benchmark 也照样过；
+- **数值行为**（是否溢出、精度损失多少）在编译期就能看到，不必等 benchmark 跑完才发现这一版不能要。
+
+而这些正是第 4 章那个 3.74× 候选栽掉的地方。KDA 官方博客把升级后的验收称为 acceptance gauntlet，六道 gate 覆盖隐藏测试、极端输入、真实 trace 与 FP64 参考。如果其中一部分检查能前移到编译期，Agent 产出的无效候选会少得多。**把「跑完再看」换成「先查再跑」，是工具层最直接的收益。**
+
+### 知识库：让下一轮不从零开始
+
+README 的架构图里，知识库与编译期分析、基准服务并列，并由「演进记录与优化后的 kernel」持续喂养。换成 KDA 的语言，这就是 KernelWiki 加上候选记录的组合：可检索的历史，加上可复查的产物。
+
+关键差别在「可检索」三个字。知识库不是一份越写越长的笔记，而是有入口、有结构、能被 Agent 在冷启动时直接命中的东西。第 7 章 [Skills 与经验沉淀](/guide/skills/) 会专门讲怎么把经验组织到能被调用的粒度。
+
+### 基准服务与远程执行：把测量和执行拆开
+
+**基准服务**负责计时与打分，让性能比较不必每个任务自己拼脚本——它解决的是「可比性」：同一个 workload 在不同机器、不同写法之间，必须走同一条计时路径，否则 speedup 只是噪声。[Humanize 论文](https://arxiv.org/abs/2610.08900)记录过一个真实案例：KDA 里的 Claude 把自己写的第一版 kernel 当成 baseline，超过之后宣布完成，官方 baseline 根本没比。统一计时路径能减少这类事故。
+
+**kcoral** 则是另一件事：README 写得很明确，它让 Agent 留在一台机器上，把 GPU 工作放到另一台机器执行（"keep your agent on one machine and run GPU work on another"）。这件事的价值常被低估——它把「Agent 在哪台机器上」和「GPU 在哪台机器上」解耦，于是本地没有数据卡的机器也能驱动远端的优化实验。
+
+## 和 KDA、Humanize 放在一起看
+
+| 层 | KDA | Humanize | TIRx Harness |
+| --- | --- | --- | --- |
+| 流程与候选管理 | draft → plan → 候选 → 记录 | 计划合同 + builder/reviewer 轮次 | 由 harness 与 skills 约定 |
+| 判断的可靠性 | Verifier 对照验收标准复核证据 | 写/判分离 + 跨厂商 reviewer + 机械 gate | 负载契约 + 编译期分析 |
+| Agent 手里的工具 | ncu-report、KernelWiki 两个 skill | 多 CLI、hook 与脚本 | TIRx-lite、编译期分析、基准服务、kcoral |
+
+一句话：KDA 与 Humanize 主要在「流程与判断」这一层做文章，TIRx 主要在「工具层」这一层做文章。三者不冲突——真要用可以叠在一起，第 8 章 [自建 harness](/guide/beyond/) 会讲怎么把这些零件装成一台自己能运转的机器。
+
+## 公开结果怎么读
+
+有两组 TIRx 相关的数字，出自两个不同的实验，不要混着说。
+
+第一组来自 MLC 自己的博客（2026-09-29）：在 KDA workload 上报告 Kimi Delta Attention forward **2.94×**、backward **6.84×**、MSA prefill **2.59×**，均为几何平均。
+
+第二组来自 KDA 官方博客（2026-09-27）：官方在 B300 上以 FlashKDA 为 baseline，评测多种实现方案产生的 kernel，最终通过加固后验收的结果里，KDA + TIRx 是 **2.96×**、KDA + CAKE（PTX 版）**2.94×**、KDA + CAKE（CuTe 版）**2.85×**，且 final state 误差约为 FlashKDA 的十分之一。
+
+这两组数字不能横向比较：前者的 baseline 与测量口径由 MLC 自己定义，后者是 KDA 团队在 B300 上的评测，任务与 workload 家族也不完全相同。看到「TIRx 2.94×」时，先问它出自哪篇文章、跟谁比。
+
+还有一个位置值得注意：在 KDA 官方的评测里，TIRx 是被当作「一种可被 Agent 驾驭的 kernel 写法」来用的——KDA 团队让 Agent 生成 TIRx kernel，再与用 CAKE、CUDA C++ 等写法产出的候选放在一起比。这说明 TIRx 在那条路线里的位置是**可被 Agent 驾驭的实现形式**，而不是「替代整条流程的方案」。把它当成流程本身来照搬，会读错它的设计意图。
+
+<Aside type="note" title="为什么这一章要单列">
+如果只看流程，KDA 与 Humanize 已经足够；TIRx 提供的是另一个维度的约束：当 Agent 的实现形式本身被限制在一套可检查的语言里时，很多错误可以在编译期就被挡掉，而不必等 benchmark 跑出一个不可信的结果。
+</Aside>
+
+## 给自己的 harness 列一份工具清单
+
+这是本章最实用的产出。照着上面的工具层，问自己六个问题：
+
+| 该有的能力 | 它挡住什么 | 没有它时的最小替代 |
+| --- | --- | --- |
+| 可注册、可复用的负载契约 | 对错标准漂移（阈值被改松） | 一份不可修改的 `task.md` + 一份 `acceptance.yaml` |
+| 受约束的 kernel 写法 | 语法级与结构级错误 | 固定模板 + 编译告警当作硬门禁 |
+| 编译期分析 | 随机出现的竞争与同步问题 | 候选通过后至少跑一遍 `compute-sanitizer --tool racecheck` |
+| 知识库 | 重复劳动、无效候选 | 可检索的 PR 档案 + 候选记录 |
+| 统一的基准服务 | 口径不一致造成的假加速 | 一个所有候选共用的 `bench.py`，输出 JSON |
+| 远程执行 | 硬件可得性限制 | 容器 + 一个远程 runner 脚本 |
+
+如果这六项里有四项答不上来，说明你的 harness 目前只是「让 Agent 写代码」，还不是「让 Agent 写对」。
+
+## 常见误区
+
+- **把 TIRx 当成又一个「更快的 kernel 库」。** 它是工具层，产出是流程与证据，不是一个可以直接调用的算子。
+- **以为装了 harness 就不用自己写验收。** 负载契约必须由你定义，harness 只负责执行它，不会替你判断什么算对。
+- **把两组加速比并列成「TIRx 的成绩」。** 2.94× 与 2.96× 出自两篇文章、两套 baseline、两份测量口径。
+- **忽略编译期分析。** 竞争与同步错误在 benchmark 里常表现为「不稳定」，很容易被当成机器抖动放过。
+- **以为远程执行只是省事。** 它真正的价值是把 Agent 的位置与 GPU 的位置解耦。
+
+## 本章自检
+
+- [ ] 我能分清 TIRx 编译器栈与 TIRx Harness。
+- [ ] 我能说出工具层各部分分别解决什么问题。
+- [ ] 我能举出两类 benchmark 测不出来的问题，并说明编译期分析为什么能抓到。
+- [ ] 我知道 2.94× 与 2.96× 分别出自哪篇文章，为什么不能并列。
+- [ ] 我为自己的 harness 列出了工具清单，并标出了缺哪一项。
+
+### 练习
+
+<Exercise level="L2" title="为你的 harness 列一份工具层清单" time="40 分钟">
+
+**目标**：把 TIRx Harness 的工具层翻译成你自己任务的「缺什么」，并给每项缺口一个本周就能落地的最小替代。
+
+**任务**：
+
+1. 选一个小 kernel 任务（softmax、LayerNorm 或向量加），写下你当前的 harness 已有的能力，逐项对照下表六个问题：负载契约、受约束写法、编译期分析、知识库、基准服务、远程执行。
+2. 对每个「没有」写出一个最小替代方案，例如「没有编译期分析 → 候选通过后至少跑一遍 `compute-sanitizer --tool racecheck`」。
+3. 挑出你认为最容易被忽略的一项，说明缺了它，Agent 最可能产出哪一类假加速。
+4. 写一份 workload contract 草稿：任务名、输入 shape 与 dtype、baseline（带 commit）、正确性判据与容差、性能判据（warmup、重复次数、取哪个统计量）、禁止事项。
+
+**验收标准**：六项能力各有一句结论（已有 / 部分 / 缺失）；每个缺口都有可执行的最小替代；你指出的那类假加速能被一条具体命令拦住；contract 里每一条都能对应到一条命令或一个可检查的文件。
+
+**无 GPU 替代**：本题不需要 GPU。编译期分析一项可用 CPU 上的 ThreadSanitizer 或等价检查工具替代，性能判据改用耗时中位数即可。
+
+<details>
+<summary>提示</summary>
+
+列清单时按「这项能力挡住了哪种错误」来想，而不是按「这项技术听起来多先进」。负载契约挡的是对错标准漂移；受约束写法挡的是语法级与结构级错误；编译期分析挡的是随机出现的竞争与同步问题；知识库挡的是重复劳动；基准服务挡的是口径不一致的假加速；远程执行挡的是硬件可得性。
+
+写不出「禁止事项」这一栏，通常说明你还没想清楚哪些东西不能被 Agent 改动——先从测试文件、baseline 文件和阈值文件开始列。
+
+</details>
+
+</Exercise>
+
+## 延伸阅读
+
+- [TIRx Harness 仓库](https://github.com/mlc-ai/tirx-harness)：README 给出「编译器内核 + 知识库 + 工具 + 基准服务」这四件套的原始定义与安装方式。
+- [TIRx Harness 文档](https://tirxharness.mlc.ai/docs/)：安装、快速上手、跑一个已注册的 workload，以及「新增 workload」「贡献 kernel」「报告缺陷」三篇扩展指南。
+- [TIRx Harness 博客](https://blog.mlc.ai/2026/09/29/tirx-harness-an-open-compiler-harness-for-agentic-gpu-programming)：公开结果与设计动机（2026-09-29）。
+- [TIRx 编译器栈文档](https://tvm.apache.org/docs/tirx/overview.html)：TIRx 作为 Apache TVM 的 kernel DSL 与编译器栈的说明。
+- [tirx-kernels](https://github.com/mlc-ai/tirx-kernels)：官方 kernel 库与端到端基准示例。
+- [Agentic GPU Programming for MLSys](https://mlc.ai/agentic-gpu-programming-for-mlsys/)：免费书，讲 harness 的设计动机与一次完整的优化流程。
+- [Modern GPU Programming for MLSys](https://mlc.ai/modern-gpu-programming-for-mlsys/)：配套公开课程，讲 GPU 执行模型与用 TIRx 写面向 ML 系统的 kernel。
+- [kcoral](https://kcoral.mlc.ai/)：远程执行服务。
+- [KDA² 官方博客](https://nvlabs.github.io/kda/blog/2026-09-27-kda-for-kda/)：KDA 团队评测里 TIRx 方案的 2.96×，以及验收加固的完整过程（2026-09-27）。
+
+下一章换一个角度：工具能告诉 Agent「这段代码有竞争」，却告诉不了它「这个 fusion 在 FP8 下到底成不成立」。那部分答案在人的经验里，要写成可检索的 skill：[Skills 与经验沉淀](/guide/skills/)。
+
+本章链接与数据核对至 2026-10-30；完整来源清单见[资料库](/resources/)。

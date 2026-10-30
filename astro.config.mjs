@@ -64,6 +64,7 @@ export default defineConfig({
           items: [
             { label: 'KDA：让 Agent 写 kernel', link: '/guide/kda/' },
             { label: 'Humanize：判断工程', link: '/guide/humanize/' },
+            { label: 'TIRx：编译器作为工具层', link: '/guide/tirx/' },
           ],
         },
         {

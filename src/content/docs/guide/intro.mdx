@@ -14,7 +14,7 @@ import Exercise from '../../../components/Exercise.astro';
 
 - 用自己的话解释 Kernel Agent，并区分它与「让聊天模型写一段 CUDA」的差别。
 - 说出 Kernel Agent 在 2026 年出现的三个条件，并各举一个反例或风险。
-- 概述 KDA（Kernel Design Agents）、Humanize、BBuf skills 三者的分工与入口，并说明 TIRx Harness 提供了什么对照视角。
+- 概述 KDA（Kernel Design Agents）、Humanize、TIRx Harness、BBuf skills 四者的分工与入口，并说明它们分别回答「怎么组织流程」「怎么保证判断」「给 Agent 什么工具」「怎么把经验喂给 Agent」。
 - 按本站路线规划接下来的阅读与动手顺序。
 - 完成 GPU、CUDA、ncu、Python 与 Agent CLI 的环境自检，或明确选择无 GPU 路径。
 
@@ -58,22 +58,22 @@ Claude Code、Codex CLI 这类终端 Agent 已经能维持多轮会话、读写�
 
 ## 四个代表项目
 
-不要把它们当成四个竞品。KDA、Humanize、BBuf skills 分别回答「怎么组织 kernel 工作流」「怎么保证判断可靠」「怎么把经验喂给 Agent」，TIRx Harness 则回答「Agent 能拿到什么工具与知识」。
+不要把它们当成四个竞品。KDA、Humanize、TIRx Harness、BBuf skills 分别回答「怎么组织 kernel 工作流」「怎么保证判断可靠」「Agent 能拿到什么工具与知识」「怎么把经验喂给 Agent」。
 
 | 项目 | 一句话定位 | 你会学到 | 入口 |
 | --- | --- | --- | --- |
 | KDA（Kernel Design Agents） | 以编码 Agent 为中心的 CUDA kernel 工作流，配 KernelWiki 与 ncu-report 两个 skill | 任务合同、draft→plan、候选记录、profiling 证据 | [NVlabs/kda](https://github.com/NVlabs/kda) |
 | Humanize | 判断工程（Judgement Engineering）：写/判分离、计划合同、机械 gate | 为什么 Agent 的自评不可靠，如何用流程约束它 | [论文](https://arxiv.org/abs/2610.08900) / [仓库](https://github.com/PolyArch/humanize) |
-| BBuf skills | 把 AI Infra 专家经验沉淀成 Agent 可检索的 skill 与 118 份模型 PR 历史档案 | prefill/decode 视角、kernel 与 Python 的映射、fusion 成立条件 | [AI-Infra-Auto-Driven-SKILLS](https://github.com/BBuf/AI-Infra-Auto-Driven-SKILLS) |
 | TIRx Harness | MLC 开源的编译器 harness，把 kernel 知识库、编译期分析与基准服务接给 Agent | 编译器如何成为 Agent 的工具层，参考实现如何进入搜索空间 | [TIRx 博客](https://blog.mlc.ai/2026/09/29/tirx-harness-an-open-compiler-harness-for-agentic-gpu-programming) |
+| BBuf skills | 把 AI Infra 专家经验沉淀成 Agent 可检索的 skill 与 118 份模型 PR 历史档案 | prefill/decode 视角、kernel 与 Python 的映射、fusion 成立条件 | [AI-Infra-Auto-Driven-SKILLS](https://github.com/BBuf/AI-Infra-Auto-Driven-SKILLS) |
 
-前三个是本站的主线案例，第四个用来对照：KDA 与 Humanize 关心流程与判断，TIRx 关心 Agent 能拿到什么工具与知识。TIRx 在 KDA workload 上报告的结果是 forward 2.94×、backward 6.84×、MSA prefill 2.59×（均为几何平均；来源为 [MLC TIRx 博客](https://blog.mlc.ai/2026/09/29/tirx-harness-an-open-compiler-harness-for-agentic-gpu-programming)，2026-09-29）。注意这是 TIRx 自己的实验组，基线与 KDA v0.5 的三项加速比不同，两组数字不可横向比较。
+四个都是本站的案例章节（第 4 到 7 章），只是关注点不同：KDA 与 Humanize 关心流程与判断，TIRx 关心 Agent 能拿到什么工具，BBuf skills 关心经验怎么沉淀。TIRx 在 KDA workload 上报告的结果是 forward 2.94×、backward 6.84×、MSA prefill 2.59×（均为几何平均；来源为 [MLC TIRx 博客](https://blog.mlc.ai/2026/09/29/tirx-harness-an-open-compiler-harness-for-agentic-gpu-programming)，2026-09-29）。注意这是 TIRx 自己的实验组，基线与 KDA v0.5 的三项加速比不同，两组数字不可横向比较。
 
 KDA 官方 README 明确说这是一个**早期研究原型**、仍在活跃开发；Humanize 的 Humanize2 也仍在演进。因此本站讲的是「截至 2026-10 的公开设计」，具体命令、模型与数字以官方为准。
 
 ## 本站的学习路线
 
-主线是：先理解问题，再补两块基础，然后拆两个真实案例，最后自己搭一个最小 harness（执行框架）。
+主线是：先理解问题，再补两块基础，然后拆三个真实案例，最后自己搭一个最小 harness（执行框架）。
 
 | 章节 | 核心问题 | 读完能做什么 |
 | --- | --- | --- |
@@ -82,10 +82,11 @@ KDA 官方 README 明确说这是一个**早期研究原型**、仍在活跃开�
 | 3 GPU kernel 与性能 | 怎么判断 kernel 好不好 | 读一份 ncu 报告并指出瓶颈 |
 | 4 KDA 案例 | 一套完整流程长什么样 | 复现最小 KDA 流程 |
 | 5 Humanize 案例 | 怎么保证「真做完了」 | 设计写/判分离与检查清单 |
-| 6 Skills 与经验沉淀 | 怎么让 Agent 冷启动更快 | 写一个自己的 skill |
-| 7 自建 harness | 如何把各章组合起来 | 设计自己的 v0 harness |
+| 6 TIRx 案例 | Agent 能拿到什么工具 | 读懂一个编译器 harness 的分层 |
+| 7 Skills 与经验沉淀 | 怎么让 Agent 冷启动更快 | 写一个自己的 skill |
+| 8 自建 harness | 如何把各章组合起来 | 设计自己的 v0 harness |
 
-如果你时间有限，最低限度的顺序是 1 → 2 → 3 → 4；第 5 章 [Humanize](/guide/humanize/) 解释了为什么第 4 章的流程必须配独立验收，建议不要跳过。第 6、7 章更偏工程化，可以在做过一次小任务后再读。术语不熟时先查[术语表](/glossary/)，它按章节索引了全站出现的缩写。
+如果你时间有限，最低限度的顺序是 1 → 2 → 3 → 4；第 5 章 [Humanize](/guide/humanize/) 解释了为什么第 4 章的流程必须配独立验收，建议不要跳过。第 6 章 [TIRx](/guide/tirx/) 是对照阅读，读它是为了知道一个成熟 harness 把工具层做成了什么样；第 7、8 章更偏工程化，可以在做过一次小任务后再读。术语不熟时先查[术语表](/glossary/)，它按章节索引了全站出现的缩写。
 
 先补基础再读案例，是因为 KDA 与 Humanize 的文档默认你理解 Agent 循环、任务合同与 ncu 指标；跳过基础直接读案例，容易记住命令，却说不出这些设计为什么存在。
 
@@ -171,7 +172,7 @@ Agent 的成本主要来自 token 与 GPU 时间。开始前先设三个上限�
 
 - [ ] 我能解释 Kernel Agent 的「工具闭环」与普通代码生成的区别。
 - [ ] 我能说出推动它出现的三个条件，并解释为什么可验证性既是优点也是风险。
-- [ ] 我知道 KDA、Humanize、BBuf skills 各自解决哪一段问题，以及 TIRx Harness 补的是哪一段。
+- [ ] 我知道 KDA、Humanize、TIRx Harness、BBuf skills 各自解决哪一段问题。
 - [ ] 我能按本站路线说出下一章要读什么，以及为什么先读 Agent 而不是直接读 KDA。
 - [ ] 我完成了环境自检，或明确记录了自己要走无 GPU 路径。
 - [ ] 我能说出至少三条 Agent 使用中的安全边界。

@@ -6,7 +6,7 @@ description: 从 KernelWiki 与 ncu-report 出发，学习如何把领域知识�
 import { Aside } from '@astrojs/starlight/components';
 import Exercise from '../../../components/Exercise.astro';
 
-上一章的 [Humanize](/guide/humanize/) 让 reviewer 不断追问证据。但 reviewer 如果只有“检查测试是否跑了”的通用清单，仍然问不出关键问题：这个 fusion 在 FP8 下成立吗？这个 kernel 对应哪一行 Python？上游是否已经有人提交过类似 PR？本章讨论 **skill（技能包）**：把专家经验整理成 Agent 能在冷启动时直接调用的上下文与步骤。
+前两章分别处理了工具与判断：[TIRx](/guide/tirx/) 让编译器本身变成 Agent 可调用的分析器，[Humanize](/guide/humanize/) 让 reviewer 不断追问证据。但 reviewer 如果只有“检查测试是否跑了”的通用清单，仍然问不出关键问题：这个 fusion 在 FP8 下成立吗？这个 kernel 对应哪一行 Python？上游是否已经有人提交过类似 PR？本章讨论 **skill（技能包）**：把专家经验整理成 Agent 能在冷启动时直接调用的上下文与步骤。
 
 ## 学习目标
 
@@ -212,7 +212,7 @@ Skill 也需要评估。可以看四个指标：触发是否准确（该用的�
 - [BBuf AI-Infra-Auto-Driven-SKILLS](https://github.com/BBuf/AI-Infra-Auto-Driven-SKILLS)：serving、profiling 与 PR 检索等 Infra 经验的 skill 集合。
 - [Skills 目录](https://github.com/BBuf/AI-Infra-Auto-Driven-SKILLS/tree/main/skills)：11 个 skill 的源文件；118 份 PR 档案在同仓库的 `model-pr-optimization-history/`。
 - [NVIDIA Nsight Compute 文档](https://docs.nvidia.com/nsight-compute/NsightCompute/index.html)：ncu 指标、section 与命令行参数的官方参考。
-- 上一章回顾：[Humanize：让 Agent 真正做完](/guide/humanize/)，看写/判分离如何为 skill 提供验收接口。
+- 前两章回顾：[TIRx：编译器作为工具层](/guide/tirx/)，看工具层如何稳定地产出证据；[Humanize：判断工程](/guide/humanize/)，看写/判分离如何为 skill 提供验收接口。
 
 下一章 [自建 harness](/guide/beyond/) 会把前面几章拼起来：任务规格、工具、循环、验证、记录与预算，如何组成一个属于你的最小系统。
 

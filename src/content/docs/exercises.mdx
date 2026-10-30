@@ -32,13 +32,14 @@ import Exercise from '../../components/Exercise.astro';
 | E3 | 从一份 ncu 摘要找首要瓶颈 | L2 | 35 分钟 | GPU kernel 与性能 | [章节练习](/guide/gpu-kernel/#本章自检) |
 | E4 | 复现一个最小 KDA 流程 | L3 | 2.5 小时 | KDA | [章节练习](/guide/kda/#本章自检) |
 | E5 | 为 kernel 任务设计 reviewer 检查清单 | L3 | 45 分钟 | Humanize | [章节练习](/guide/humanize/#练习) |
-| E6 | 写一个 200 行以内的 skill | L3 | 60 分钟 | Skills | [章节练习](/guide/skills/#练习) |
-| E7 | 为小 kernel 搭 v0 harness | L4 | 3 至 4 小时 | Beyond | [章节练习](/guide/beyond/#练习) |
-| E8 | 双 CLI builder/reviewer 循环 | L4 | 4 至 6 小时 | Humanize、Beyond | [本页 L4-A](#l4-a) |
-| E9 | 复现 Flame Chase 最小版 | L4 | 4 至 6 小时 | Humanize、Beyond | [本页 L4-B](#l4-b) |
-| E10 | 拆解一个被挡下来的加速比 | L2 | 40 分钟 | KDA | [本页 L2](#l2) |
+| E6 | 为你的 harness 列一份工具层清单 | L2 | 40 分钟 | TIRx | [章节练习](/guide/tirx/#练习) |
+| E7 | 写一个 200 行以内的 skill | L3 | 60 分钟 | Skills | [章节练习](/guide/skills/#练习) |
+| E8 | 为小 kernel 搭 v0 harness | L4 | 3 至 4 小时 | Beyond | [章节练习](/guide/beyond/#练习) |
+| E9 | 双 CLI builder/reviewer 循环 | L4 | 4 至 6 小时 | Humanize、Beyond | [本页 L4-A](#l4-a) |
+| E10 | 复现 Flame Chase 最小版 | L4 | 4 至 6 小时 | Humanize、Beyond | [本页 L4-B](#l4-b) |
+| E11 | 拆解一个被挡下来的加速比 | L2 | 40 分钟 | KDA | [本页 L2](#l2) |
 
-E10 是纯阅读题：读 KDA 官方博客中关于 3.74× 候选的复盘，练习把「作弊手法」翻译成你自己任务的验收条款。它不需要 GPU，也不需要写代码。
+E11 是纯阅读题：读 KDA 官方博客中关于 3.74× 候选的复盘，练习把「作弊手法」翻译成你自己任务的验收条款。它不需要 GPU，也不需要写代码。
 
 ## 无 GPU 怎么练
 
@@ -47,10 +48,10 @@ E10 是纯阅读题：读 KDA 官方博客中关于 3.74× 候选的复盘，练
 | E1、E2 | 不需要 GPU；用任意小任务练习写规格与验收 |
 | E3 | 使用公开的 ncu 报告、课程示例数据或本站教学数据，重点练“指标到结论”的推理 |
 | E4 | 把 CUDA kernel 换成 NumPy 或纯 Python 实现，保留任务定义、候选记录与 benchmark 结构 |
-| E5、E6 | 不需要 GPU；用 CPU 任务验证 reviewer 与 skill 是否可执行 |
-| E7 | 把 kernel 换成 CPU 可跑的 softmax、矩阵乘或解析器优化，保留规格、验证、review 与预算结构 |
-| E8、E9 | 用 CPU 可跑的任务替代；或使用云端 GPU 的单次配额 |
-| E10 | 不需要 GPU；纯阅读与写作题 |
+| E5、E6、E7 | 不需要 GPU；用 CPU 任务验证 reviewer、工具清单与 skill 是否可执行 |
+| E8 | 把 kernel 换成 CPU 可跑的 softmax、矩阵乘或解析器优化，保留规格、验证、review 与预算结构 |
+| E9、E10 | 用 CPU 可跑的任务替代；或使用云端 GPU 的单次配额 |
+| E11 | 不需要 GPU；纯阅读与写作题 |
 
 如果使用云端 GPU，先确认计费方式与关机策略，给任务设置硬超时；不要在没有预算上限的情况下让 Agent 自由循环。
 

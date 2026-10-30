@@ -41,7 +41,7 @@ import Exercise from '../../../components/Exercise.astro';
 | --- | --- | --- |
 | [KDA](https://github.com/NVlabs/kda) | 任务合同、最小流程与证据记录；KernelWiki 与 ncu-report 两个 skill | 目录布局、晋升规则、候选记录格式 |
 | [Humanize](https://github.com/humanfia/humanize) / [Humanize 1](https://github.com/PolyArch/humanize) | 写/判分离、计划合同、72 道机械 gate，以及 Humanize 2 的 flow 运行时 | 判定的独立性与机械化的具体做法 |
-| [TIRx Harness](https://github.com/mlc-ai/tirx-harness) | 把编译器、知识库、编译期分析与基准服务接给 Agent；workload contract 用来定义正确性与性能 | 「Agent 能拿到什么工具」这一层的清单；它还提供远程执行（kcoral）与 kernel 仓库，便于把编译与评测搬到远端机器 |
+| [TIRx Harness](https://github.com/mlc-ai/tirx-harness) | 把编译器、知识库、编译期分析与基准服务接给 Agent；workload contract 用来定义正确性与性能 | 「Agent 能拿到什么工具」这一层的清单；它还提供远程执行（kcoral）与 kernel 仓库，便于把编译与评测搬到远端机器（第 6 章 [TIRx](/guide/tirx/) 已单独拆解） |
 
 TIRx 公开的结果可以作为「流程能做到什么量级」的参照：它在 KDA workload 上报告 forward 2.94×、backward 6.84×、MSA prefill 2.59×（几何平均，来源为 [MLC 博客](https://blog.mlc.ai/2026/09/29/tirx-harness-an-open-compiler-harness-for-agentic-gpu-programming)，2026-09-29）。注意这些数字的 baseline 与 KDA 官方博客里的 2.96×/2.94×/2.85× 不同，不可并列比较。
 
@@ -180,9 +180,9 @@ Reward hacking 指 Agent 优化了你写的指标，却没有完成你真正想�
 | 日志缺失 | 无法比较候选，复盘靠记忆 | 只追加 ledger，固定字段 |
 | 评测可写 | Agent 改阈值或 baseline | 评测文件只读，改动进 diff |
 
-## 回到主线：七篇正文，一个闭环
+## 回到主线：八篇正文，一个闭环
 
-把七篇正文压缩成一张表，会发现它们回答的是同一串问题：
+把八篇正文压缩成一张表，会发现它们回答的是同一串问题：
 
 | 篇章 | 回答的问题 | 你应该留下的产物 |
 | --- | --- | --- |
@@ -191,6 +191,7 @@ Reward hacking 指 Agent 优化了你写的指标，却没有完成你真正想�
 | GPU kernel 与性能 | 怎么判断一个 kernel 好不好 | baseline、六维 profiling 结论 |
 | KDA | 一套完整流程长什么样 | 候选记录与保留/放弃理由 |
 | Humanize | 谁来判断“做完了” | 写/判分离的检查清单 |
+| TIRx | Agent 手里的工具长什么样 | 一份工具层清单与每项的最小替代 |
 | Skills | 经验怎么复用 | 一个可执行、可维护的 skill |
 | 自建 harness | 怎么把零件装成系统 | 能硬停、能复盘的 v0 |
 
