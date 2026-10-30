@@ -684,7 +684,19 @@ main > .content-panel:first-child h1::before {
 .sl-markdown-content li {
 	color: var(--ka-text);
 	line-height: 1.85;
+}
+
+/* The list indent is skipped for Starlight's <Steps>: the step number is an
+   absolutely positioned badge and the room for it is reserved with
+   `padding-inline-start` on the `li`. Overriding that collapses the gap, so
+   the badge lands on top of the step text. Starlight keeps those defaults in
+   a cascade layer, which any unlayered rule here would outrank. */
+.sl-markdown-content :is(ul, ol):not(.sl-steps) > li {
 	padding-inline-start: 0.1rem;
+}
+
+.sl-markdown-content ol.sl-steps {
+	padding-inline-start: 0;
 }
 
 .sl-markdown-content li::marker {
