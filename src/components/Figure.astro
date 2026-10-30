@@ -86,7 +86,7 @@ const { caption } = Astro.props;
 	.ka-figure-scroll {
 		overflow-x: auto;
 		overscroll-behavior-x: contain;
-		padding: 0.9rem;
+		padding: 0.75rem;
 		scrollbar-width: thin;
 		scrollbar-color: var(--ka-line-strong) transparent;
 		/* Edge fades hint that the diagram continues past the viewport.
@@ -175,9 +175,11 @@ const { caption } = Astro.props;
 
 	/* Diagrams are authored at 960 units wide. Keeping a minimum rendered
 	   width stops the SVG from shrinking so far that its labels become
-	   unreadable; the container scrolls instead of squeezing the artwork. */
+	   unreadable; the container scrolls instead of squeezing the artwork.
+	   The floor matches the widened content column, so the diagrams fit
+	   without horizontal scrolling on a normal laptop screen. */
 	.ka-figure-canvas {
-		min-width: 920px;
+		min-width: 780px;
 	}
 
 	figcaption {
@@ -221,6 +223,11 @@ const { caption } = Astro.props;
 		font-family: var(--ka-font-mono);
 		font-size: 0.6rem;
 		white-space: nowrap;
+	}
+
+	/* The hint only makes sense while the figure actually overflows. */
+	.ka-figure:not(.is-scrollable) .ka-figure-hint {
+		display: none;
 	}
 
 	@media (max-width: 50rem) {
