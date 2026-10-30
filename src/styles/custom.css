@@ -1013,14 +1013,14 @@ main > .content-panel:first-child h1::before {
    ~360px on a laptop and ~600px on a wide screen for a list of short links.
    The rail below is sized on its own and hugs its text instead. */
 @media (min-width: 72rem) {
+	/* Starlight sizes the right column with the navigation width, which reserves
+	   ~360px on a laptop and ~600px on a wide screen for a list of short links.
+	   The rail below gets its own width and is anchored to the right edge of the
+	   viewport, so it stops floating between the content and the screen edge. */
 	.right-sidebar-container {
-		width: max(
-			var(--ka-toc-width),
-			calc(
-				var(--ka-toc-width) +
-					(100% - var(--sl-content-width) - var(--ka-toc-width)) / 2
-			)
-		);
+		/* Only the reserved width matters here: the rail is anchored to the
+		   viewport edge, so this just keeps the content clear of it. */
+		width: var(--ka-toc-width);
 	}
 
 	[data-has-sidebar][data-has-toc] .main-pane {
@@ -1037,10 +1037,18 @@ main > .content-panel:first-child h1::before {
 		padding: 1rem 0;
 	}
 
-	.right-sidebar-panel .sl-container {
+	.right-sidebar {
+		inset-inline-start: auto;
+		inset-inline-end: 0;
 		width: var(--ka-toc-width);
-		max-width: var(--ka-toc-width);
-		padding-inline: var(--ka-toc-pad-x);
+		border-inline-start: none;
+	}
+
+	.right-sidebar-panel .sl-container {
+		width: 100%;
+		max-width: 100%;
+		padding-inline: var(--ka-toc-pad-x) 1.35rem;
+		border-inline-start: 1px solid var(--ka-line);
 		background: linear-gradient(180deg, var(--ka-surface) 0, transparent 18rem);
 	}
 }
@@ -1049,10 +1057,6 @@ main > .content-panel:first-child h1::before {
    how wide the TOC rail is. */
 html[data-has-toc] {
 	--__toc-width: var(--ka-toc-width);
-}
-
-.right-sidebar {
-	border-inline-start-color: var(--ka-line);
 }
 
 starlight-toc nav h2 {
