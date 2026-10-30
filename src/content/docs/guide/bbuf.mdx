@@ -1,0 +1,224 @@
+---
+title: BBuf skills：把 Infra 经验喂给 Agent
+description: 拆解 BBuf 的 AI-Infra-Auto-Driven-SKILLS：11 个 skill 与 118 份模型 PR 历史档案如何把一线 Infra 经验变成 Agent 可检索的上下文，以及审计日期、diff-card 与 query.py 这些证据规则为什么重要。
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import Exercise from '../../../components/Exercise.astro';
+import BbufSkills from '../../../components/diagrams/BbufSkills.astro';
+
+前三章分别回答了「流程怎么排」「判断怎么可靠」「Agent 能拿到什么工具」。它们都默认了一件事：**Agent 冷启动时已经知道该往哪儿看**。真实情况往往相反：一个新模型要优化某个算子，它不知道这个 fusion 在什么 dtype 下成立、这个 kernel 名对应哪一行 Python、上游是不是已经有人做过同样的事。这些知识确实存在——只是散落在资深工程师的经验、几百个 PR 讨论和无数份 profiler 报告里。BBuf 的 AI-Infra-Auto-Driven-SKILLS 是一个把这类经验显式化的公开样本：它本身不是框架、不是平台，而是一份**可以被 Agent 检索的经验库**。
+
+这个仓库的规模不大：11 个 skill，加上 118 份模型 PR 历史档案。但它小到可以读完，大到能看出一个经验库该有的全部零件——触发条件、口径、脚本、档案、检索入口与审计规则。本章按这个仓库的真实结构逐层拆开，并在最后指出它与其他三个案例项目的分工。
+
+## 学习目标
+
+读完本章，你应当能够：
+
+- 说出这个仓库解决的是哪一段问题，与 KDA、Humanize、TIRx 的分工；
+- 列出 11 个 skill 覆盖的方向，并解释其中三类 skill 各自的工作方式；
+- 说明 prefill/decode 视角、kernel 与 Python 的映射、fusion 成立条件这三类上下文为什么必须显式写出来；
+- 说清 118 份 PR 档案怎么组织、怎么检索，以及「审计日期」这条证据规则为什么不能省；
+- 判断一个 skill 里的脚本结论与人工结论之间的界线；
+- 指出这个经验库最容易被误用的三种方式。
+
+## 它解决的是哪一段问题
+
+先把它放回全景里。四个公开项目回答的是四个不同的问题，不是同一问题的四个版本：
+
+| 项目 | 它回答的问题 | 它的产物形态 |
+| --- | --- | --- |
+| [KDA](https://github.com/NVlabs/kda) | 一次 kernel 优化任务怎么组织 | 任务合同、draft → plan、候选与基准记录 |
+| [Humanize](https://arxiv.org/abs/2610.08900) | 怎么保证「真的做完了」 | 写/判分离、机械 gate、证据化评审 |
+| [TIRx Harness](https://github.com/mlc-ai/tirx-harness) | Agent 能拿到什么工具 | 负载契约、编译期分析、知识库、基准服务 |
+| BBuf skills | 经验从哪来，怎么被检索 | 11 个 skill 与 118 份模型 PR 档案 |
+
+BBuf 仓库对自身的描述是「Agent-ready skills for LLM serving benchmarks, profiler triage, capacity planning」——注意三个词都是 Infra 侧的场景，而不是 kernel 优化本身。它的出发点是 serving 工程师每天在做的事：压测一个模型、看 profiler、算显存预算、评审上游 PR、排查线上事故。这些事情里的判断力最难写成文档，却最能写成 skill：它们是「看到什么信号 → 做什么动作 → 怎么确认」的固定套路。
+
+这个选择带来一个重要提醒：Kernel Agent 需要的经验不止 kernel 优化经验。**Agent 要先成为一个能查资料、能算账、能定位问题的 Infra 工程师，才谈得上写 kernel。**
+
+<Aside type="note" title="核对口径">
+本章事实以该仓库当前公开内容为一手来源，核对于 2026-10-30：仓库列出的 skill 目录、PR 历史档案的目录结构与检索脚本参数以当天为准；仓库根目录未见 LICENSE 文件，许可口径以官方为准。条目数量与脚本参数都可能变化，请以仓库为准。
+</Aside>
+
+<BbufSkills />
+
+## 仓库长什么样
+
+整个仓库只有两块内容：一块是 skill 集合，一块是 PR 档案。
+
+| 路径 | 内容 |
+| --- | --- |
+| `skills/` | 11 个 skill 目录，每个是一个独立可安装的技能包 |
+| `skills/<name>/SKILL.md` | 入口文件：frontmatter 写 name 与 description，正文写步骤与产出 |
+| `skills/<name>/references/` | 参考材料：口径、指标含义、适用前提 |
+| `skills/<name>/scripts/` | 可执行脚本：解析 trace、抓取数据、检索档案 |
+| `skills/<name>/configs/` | 配置与 cookbook 模板（部分 skill 有） |
+| `model-pr-optimization-history/` | 118 份模型 PR 历史档案，**它本身也是一个 skill** |
+| `model-pr-optimization-history/scripts/query.py` | 档案检索入口 |
+| `model-pr-optimization-history/open-pr-watch.md` | 跟踪上游尚未合并的 PR |
+
+这个结构与 KDA 引入的两个 skill 是同一套工程约定：`SKILL.md` 放 frontmatter 与主流程，`references/` 放不会每次都读但需要时能查的细节，`scripts/` 放真正可执行的部分。差别在于规模——ncu-report 是**一套工作流**，BBuf 的每个 skill 更像**一份可复用的操作手册**。
+
+### 11 个 skill 覆盖什么
+
+按用途分成三组更好读。
+
+| 方向 | skill | 解决什么 |
+| --- | --- | --- |
+| 基准与容量 | `llm-serving-auto-benchmark` | 与框架无关的 serving 基准：比较 SGLang、vLLM、TensorRT-LLM、TokenSpeed 或其他框架 |
+| | `llm-serving-capacity-planner` | 从日志解释启动显存、KV cache 预算、请求容量与 OOM 压力 |
+| Profiling 与算子 | `llm-torch-profiler-analysis` | 读 Torch Profiler 的 Chrome trace 或现场抓取，定位 kernel 归属、重叠与融合机会 |
+| | `torch-profiler-layer-track` | 给 trace 补上层号与紧凑 GPU 泳道，便于在 Perfetto 里按层导航 |
+| | `llm-pipeline-analysis` | 把 trace 拆成前向、层与 kernel 三级视图，用锚点与 Perfetto 区间定位 |
+| | `model-compute-simulation` | 估算 serving shape 下的算子形状、FLOPs 与 MFU，或把 kernel 映射回算子 |
+| | `model-architecture-diagram` | 检索并返回公开的模型结构图，帮助快速对齐算子与模块 |
+| 上游协作与运维 | `sglang-humanize-review` | 按维护者方式评审 SGLang PR，依据完整的人工 review 语料 |
+| | `sglang-prod-incident-triage` | 把队列增长、超时、错误输出或卡死转成可复现的复现路径与下一步调试 |
+| | `sglang-explainer-video` | 把一次排查整理成讲解素材 |
+| | `model-optimization/sglang-model-day0-support` | 把新模型架构转成 SGLang Day-0 支持的 PR 依赖图、验证矩阵与发布锁 |
+
+三个典型的 skill 能说明它们的工作方式。
+
+**`llm-serving-auto-benchmark`** 的 frontmatter 写明用途是「与框架无关的 LLM serving 基准，用于比较 SGLang、vLLM、TensorRT-LLM、TokenSpeed 或其他 serving 框架」。它的步骤是固定的八步：先 preflight 校验各框架 CLI 可用，再把工作负载归一化成统一的 JSONL，然后选一个有界扫描的搜索档位，逐框架调优，最后归一化结果并按 SLA 排序。它规定输出物：紧凑报告，包含 workload 与 SLA、硬件与框架版本、每个框架每个场景的最佳部署命令表、一张跨框架对比表、胜者的确切启动与基准命令，以及所有产物路径。**注意最后一句——报告必须带产物路径。**这正是让另一个人（或另一个 Agent）能复核的前提。
+
+**`llm-torch-profiler-analysis`** 的触发条件写得很具体：用于 kernel 归属、重叠机会与融合模式，典型场景是模型分发、CUDA Graph 间隙、流竞争或暴露出来的 kernel 尾部。它的步骤是「选证据（已有 trace 还是现场抓取）→ 读 trace → 需要时对服务进程抓取 → 先解释再优化」。最后一步的措辞值得注意：**先解释再优化**。它把「看到 kernel 名」和「知道这个 kernel 对应哪段 Python、为什么值得动」分成两步。
+
+**`model-compute-simulation`** 面向的是「还没跑就想清楚」的决策：算子级计算模板、张量形状、FLOPs、MFU 与并行度的 what-if 分析。它的步骤是加载配置、生成 flow 与形状、用延迟估 MFU，再通过 kernel 映射给出 per-operator 的 MFU。映射规则里区分了「直接命中的 kernel」与「通用 GEMM kernel」——**前者可以直接引用结论，后者只能作为量级参考**。这种区分写进了 skill 本身，而不是留给 Agent 临场判断。
+
+## 五类必须显式写出来的上下文
+
+Agent 之所以需要 skill，是因为下面五类上下文在原始材料里都是「隐含」的：它们要么被拆散在多个文件里，要么只存在于资深工程师的直觉中。
+
+**1. prefill 与 decode 分开看。** prefill 通常计算密集、序列长、并行度高；decode 通常受显存带宽与延迟约束，batch 形状更碎。把两者混进一个平均值，会同时掩盖两边的瓶颈。Skill 要做的是告诉 Agent 分别采集、分别设 baseline、分别报告，而不是给一张合并曲线。
+
+**2. kernel 与 Python 调用点的映射。** Profiling 看到的是 kernel 名，代码里写的是 `torch.nn` 调用或自定义算子。缺少这条路径，Agent 很容易改错层——优化了一个 kernel，却不知道它在模型里的位置。`llm-torch-profiler-analysis` 用 profiler 的调用栈、算子注册表与命名约定来补这条路径，`model-compute-simulation` 则用「直接匹配」与「通用 GEMM」两档规则来限定结论能用到什么程度。
+
+**3. fusion 的成立条件。** 两个算子能融合，不代表所有输入都成立：dtype 提升规则、布局、对齐、边界 shape、数值精度都可能让融合失效。有效的 skill 要写「成立条件」与「回退路径」，而不是只留一个成功案例。
+
+**4. 上游 PR 检索。** 动手之前先查上游有没有类似实现或讨论，可以省掉重复劳动，也能借到别人的测试与基准。Skill 应当给出检索关键词、仓库范围，以及如何判断「可复用」与「仅相关」。
+
+**5. 历史 PR 档案。** 这一类被单独做成了资产，下面一节展开。
+
+## 118 份 PR 档案怎么用
+
+`model-pr-optimization-history/` 是这个仓库最有分量的部分：118 份模型 PR 历史档案，覆盖 SGLang、vLLM、TensorRT-LLM 与 TokenSpeed 四个服务框架，按框架分目录。目录里除了分框架的档案目录，还有 `README.md`、`SKILL.md`、`open-pr-watch.md` 与 `scripts/`。
+
+### 档案本身就是一个 skill
+
+这一点很关键：`model-pr-optimization-history/SKILL.md` 的 frontmatter 里，`name` 是 `model-pr-history-knowledge`，触发场景写的是「需要先前 PR 证据的 SGLang/vLLM 优化任务」。也就是说，**它不是一堆等着被翻的文档，而是一个有触发条件的技能**——当 Agent 判断自己需要一个先例时，这个技能被激活，然后按固定流程工作：
+
+1. **推断 slug**：从任务描述推断模型与框架，拼出档案的检索标识；
+2. **读历史**：按框架与模型找到对应档案；
+3. **抽取可用证据**：从档案中摘出结论、适用条件与审计日期；
+4. **存笔记**：把结论落到工作目录，而不是留在上下文里；
+5. **引用路径**：引用时写明来自哪个档案路径，让别人能回查。
+
+第 4、5 步决定了这个档案库能不能和别的环节接上：结论必须落盘并带路径，否则它就只是一次性的对话内容，reviewer 无法复核。
+
+### 检索入口
+
+`scripts/query.py` 提供检索能力，支持 `--list` 列出全部档案、`--framework` 与 `--model` 过滤、支持 `--lang` 做中英文筛选，以及关键词检索；输出是按匹配行排序的结果。也就是说，找先例这件事从「翻目录」变成了一条命令。
+
+### 审计规则
+
+档案不是随手记的笔记，仓库写明了它的审计方式与两条硬规则：
+
+- **审计用 diff-card**，并且**未经过评审的开放 PR 不计入**——只有被审过、留有结论的改动才算证据；
+- **历史 PR 证据保留审计日期：刷新源码不等于重跑 GPU 测试。**
+
+第二条是整个仓库最值得抄进自己 skill 的一句话。它承认了一个无法绕开的事实：档案里的结论是在某个时间点、某个 commit、某套代码上得到的。你后来把源码刷新了，不代表那条性能结论还在。所以档案条目带审计日期，引用前要回到当前分支确认。**这与第 4 章 KDA 的验收加固是同一种思路**：不隐藏证据的时效，只把它标出来。
+
+`open-pr-watch.md` 则补上了另一半：上游尚未合并的 PR 是最鲜活的先例，但正因为未被评审，它只能当线索，不能当结论。
+
+<Aside type="tip" title="档案与 skill 的分工">
+Skill 回答「遇到什么信号时按什么步骤做」，档案回答「上次这类问题是怎么解的」。前者会过期得慢一些，后者会过期得快一些。所以成熟的经验库通常是两者并存：skill 稳定、档案带日期、检索入口把两者接起来。
+</Aside>
+
+## 与 KDA 两个 skill 的分工
+
+第 8 章会讲 skill 应该怎么写，这里先做一次横向对照，免得把不同性质的资产混在一起。
+
+| | KernelWiki | ncu-report | BBuf skills |
+| --- | --- | --- | --- |
+| 覆盖范围 | 算子、架构代际与迁移约束 | Nsight Compute 的分析顺序 | serving、profiling、上游协作与运维 |
+| 证据形态 | 带来源与适用条件的条目 | 六维工作流 + 报告解析脚本 | skill + 脚本 + PR 档案 |
+| 检索入口 | 按架构、技术、症状与 kernel 类型索引 | 按报告与流程阶段 | skill 触发 + `query.py` 关键词检索 |
+| 时效标注 | 语料截止日期 | ncu 版本与 GPU 架构 | 每条结论的审计日期 |
+| 回答的问题 | 别人踩过什么坑 | 这份报告说明了什么 | 上次这类 Infra 任务怎么解的 |
+
+三者的差别不在体量，而在**服务的问题不同**。KernelWiki 回答「这个硬件上有什么坑」，ncu-report 回答「这份报告该怎么读」，BBuf 的 skill 回答「这类线上任务该按什么顺序做」。
+
+## 常见误区
+
+| 误区 | 为什么容易发生 | 修正 |
+| --- | --- | --- |
+| 把档案当当前事实 | 档案读起来像结论，读的人容易忽略审计日期 | 引用时写明审计日期，并回到当前 commit 复核 |
+| 抄 skill 数量，不抄触发条件 | frontmatter 里的 description 看起来只是说明文字 | 只抄「什么信号出现时该加载」，抄不来就自己重写 |
+| 把 serving 结论直接搬到 kernel 任务 | 两者共享算子，但瓶颈、指标与基线都不同 | 先确认结论的适用前提：框架、shape、dtype、硬件 |
+| 把脚本输出当成结论 | 脚本给的是候选证据 | 脚本负责找材料，判断仍要写清依据与回退路径 |
+| 复制过来就不维护 | 仓库会变，链接会腐烂 | 设 owner、复核日期与失效标记，过期条目标记而不是照抄 |
+
+这几条与第 8 章要讲的通用原则一致，但在这里更具体：**经验库的价值等于「结论 × 时效」，时效为零时，它就是负资产。**
+
+## 本章自检
+
+- [ ] 我能说出 BBuf skills 在四个项目分工里占哪一段，与 KDA、Humanize、TIRx 的差别。
+- [ ] 我能列出 11 个 skill 覆盖的三个方向，并各举一个例子。
+- [ ] 我能解释 `llm-serving-auto-benchmark` 为什么要输出产物路径，以及 `llm-torch-profiler-analysis` 为什么强调「先解释再优化」。
+- [ ] 我能复述 prefill/decode 分开看、kernel 与 Python 映射、fusion 成立条件、上游 PR 检索这四类上下文。
+- [ ] 我能说出 118 份 PR 档案按什么组织、用什么命令检索、审计规则是什么。
+- [ ] 我能解释「刷新源码不等于重跑 GPU 测试」这句话为什么必须写进 skill。
+- [ ] 我能指出这个经验库的三种误用方式及各自修正。
+
+### 练习
+
+<Exercise level="L2" title="用 PR 档案给一个 fusion 定成立条件" time="45 分钟">
+
+**目标**：把「查档案」变成一次可复核的检索，并练习把档案结论翻译成你自己任务里的验收条款。这道题练的是证据链，不是性能。
+
+**背景**：BBuf 的 `model-pr-optimization-history/` 收录了 118 份模型 PR 历史档案，覆盖 SGLang、vLLM、TensorRT-LLM 与 TokenSpeed；检索入口是 `scripts/query.py`，支持按框架、模型、关键词筛选。仓库同时写明：档案保留审计日期，未评审的开放 PR 不计入。
+
+**任务**：
+
+1. 选定一个你关心的 serving 场景（例如长上下文 prefill 的 attention、decode 阶段的采样与传输、或者某个 norm 与量化算子的融合），写清你的目标框架、模型与关键词。
+2. 在档案里检索：先 `--list` 看结构，再用 `--framework` / `--model` / 关键词缩小范围。把你实际执行的命令原样抄下来，保留你看到的输出片段。
+3. 挑一条最相关的档案，抄出三样东西：它的结论、它的适用条件（shape、dtype、框架版本、硬件）、它的审计日期。
+4. 判断这条结论今天是否还成立，写出你的复核方式——具体到「回到哪个仓库的哪个路径，看什么」。若无法判断，写明缺什么信息。
+5. 把仍然成立的部分改写成你任务里的一条验收条款，写成「命令 + 判定条件」的形式；再写一条**禁止事项**，防止你重蹈档案里出现过的那个坑。
+6. 写一句话回答：如果只凭档案就动手改代码，最可能错在哪里。
+
+**验收标准**：
+
+- 命令与输出片段可复现，别人照着能查到同一条档案；
+- 结论、适用条件、审计日期三样都抄到了，缺一不可；
+- 复核方式具体到仓库路径与检查对象，而不是「再看看最新代码」；
+- 验收条款是可判定的命令或字段，不是「确认没问题」；
+- 禁止事项确实来自档案里出现过的具体问题，而不是泛泛的风险提示；
+- 最后一问指向证据的时效与适用前提，而不是「档案不可靠」。
+
+**无 GPU 替代**：本题不需要 GPU，也不需要跑服务。档案检索、结论抄录与条款改写全部在本地文本上完成；没有克隆仓库时，可直接阅读 GitHub 上的对应目录与文件。
+
+<details>
+<summary>提示</summary>
+
+先用 `--list` 看清档案的粒度，再决定用什么关键词。检索时先窄后宽：框架与模型先定死，再加关键词，否则会被无关档案淹没。
+
+抄结论时最容易漏的是「适用条件」和「审计日期」这两栏，它们恰恰是后面判断能不能复用的依据。写复核方式时把它写成一条可执行的检查，例如「确认 SGLang `main` 分支中该算子的默认 shape 与 dtype 未变」，而不是一句提醒。
+
+改写成验收条款时，优先写那些能挡住错误方向的条款（例如禁止在 decode 阶段使用某个只对长序列成立的融合），而不是只写「性能要达标」这类无法判定的说法。
+
+</details>
+
+</Exercise>
+
+## 延伸阅读
+
+- [AI-Infra-Auto-Driven-SKILLS](https://github.com/BBuf/AI-Infra-Auto-Driven-SKILLS)：仓库首页，含 11 个 skill 与 PR 历史档案。
+- [skills 目录](https://github.com/BBuf/AI-Infra-Auto-Driven-SKILLS/tree/main/skills)：skill 源文件，可直接读 `SKILL.md` 的 frontmatter。
+- [model-pr-optimization-history](https://github.com/BBuf/AI-Infra-Auto-Driven-SKILLS/tree/main/model-pr-optimization-history)：118 份 PR 档案与检索脚本。
+- [KDA 仓库](https://github.com/NVlabs/kda)：任务合同、KernelWiki 与 ncu-report 的一手实现，可与本章的 skill 形态对照。
+- [KernelWiki](https://github.com/mit-han-lab/KernelWiki)：按架构、技术与症状组织的领域知识库。
+- 上一章回顾：[TIRx：编译器作为 Agent 的工具层](/guide/tirx/)，看工具层如何稳定产出证据；下一章 [Skills 与经验沉淀](/guide/skills/)，看这一章的样本如何变成可复用的写法。
+
+> 来源与版本：本章事实以 BBuf AI-Infra-Auto-Driven-SKILLS 仓库当前公开内容为一手来源（skill 目录、model-pr-optimization-history 与 scripts/query.py），核对于 2026-10-30。仓库条目、脚本参数与档案数量都可能变化，请以官方为准。完整链接见[资料库](/resources/)。

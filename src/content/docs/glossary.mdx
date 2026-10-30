@@ -82,7 +82,11 @@ description: 按主题整理 Kernel Agent 领域的核心术语，包含英文�
 | 门控 DeltaNet | Gated DeltaNet | 带门控遗忘机制的线性注意力网络，竞赛中的 GDN 赛道即其 prefill 算子。 | [KDA](/guide/kda/) |
 | HOA | Humanize Olympiad Agents | Humanfia 的竞赛 Agent 项目，覆盖数学、物理、化学、生物、编程与量子信息等奥赛题目。 | [Humanize](/guide/humanize/) |
 | Loom | Loom | Humanize 论文中的应用案例，报告 180 秒预算下搜索吞吐提升约 2.34×；这是吞吐结果，不代表映射质量更好。 | [Humanize](/guide/humanize/) |
-| PR 档案 | PR archive | BBuf skills 中整理的 118 份模型 PR 历史，用于冷启动检索。 | [Skills](/guide/skills/) |
+| PR 档案 | PR archive | BBuf skills 中整理的 118 份模型 PR 历史，用于冷启动检索。 | [BBuf skills](/guide/bbuf/) |
+| AI Infra Skills | AI-Infra-Auto-Driven-SKILLS | BBuf 的公开经验库：11 个 Infra skill 与 118 份模型 PR 历史档案，把一线经验变成 Agent 可检索的上下文。 | [BBuf skills](/guide/bbuf/) |
+| 审计日期 | audit date | 一条结论最后一次被核对的日期；历史 PR 证据保留它，刷新源码不等于重跑 GPU 测试。 | [BBuf skills](/guide/bbuf/) |
+| 服务框架 | serving framework | 提供在线推理的框架，如 SGLang、vLLM、TensorRT-LLM 与 TokenSpeed；优化路径与瓶颈各不相同。 | [BBuf skills](/guide/bbuf/) |
+| Day-0 支持 | day-0 support | 新模型架构发布当天即可用的上线要求，通常包含 PR 依赖图、验证矩阵与发布锁。 | [BBuf skills](/guide/bbuf/) |
 | 编译器栈 | TIRx | 基于 Apache TVM 的硬件原生 kernel DSL 与编译器栈，配套 agent harness。 | [TIRx](/guide/tirx/) |
 | TIRx Harness | TIRx Harness | MLC 开源的编译器 harness：把知识库、编译期分析与基准服务接给 Agent。 | [TIRx](/guide/tirx/) |
 | 内核创作层 | TIRx-lite | harness 中写 kernel 的领域特定语言，建在 TIRx 中间表示之上。 | [TIRx](/guide/tirx/) |

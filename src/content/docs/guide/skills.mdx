@@ -6,7 +6,7 @@ description: 从 KernelWiki 与 ncu-report 出发，学习如何把领域知识�
 import { Aside } from '@astrojs/starlight/components';
 import Exercise from '../../../components/Exercise.astro';
 
-前两章分别处理了工具与判断：[TIRx](/guide/tirx/) 让编译器本身变成 Agent 可调用的分析器，[Humanize](/guide/humanize/) 让 reviewer 不断追问证据。但 reviewer 如果只有“检查测试是否跑了”的通用清单，仍然问不出关键问题：这个 fusion 在 FP8 下成立吗？这个 kernel 对应哪一行 Python？上游是否已经有人提交过类似 PR？本章讨论 **skill（技能包）**：把专家经验整理成 Agent 能在冷启动时直接调用的上下文与步骤。
+前两章分别处理了工具与判断：[TIRx](/guide/tirx/) 让编译器本身变成 Agent 可调用的分析器，[Humanize](/guide/humanize/) 让 reviewer 不断追问证据。但 reviewer 如果只有“检查测试是否跑了”的通用清单，仍然问不出关键问题：这个 fusion 在 FP8 下成立吗？这个 kernel 对应哪一行 Python？上游是否已经有人提交过类似 PR？这些问题在第 7 章 [BBuf skills](/guide/bbuf/) 里有一次真实样本的拆解；本章讨论它们的通用形式——**skill（技能包）**：把专家经验整理成 Agent 能在冷启动时直接调用的上下文与步骤。
 
 ## 学习目标
 
@@ -14,7 +14,7 @@ import Exercise from '../../../components/Exercise.astro';
 
 - 解释为什么“把文档丢给 Agent”不等于沉淀经验；
 - 拆解 KernelWiki 与 ncu-report 两个 skill 各自解决什么问题；
-- 说出 BBuf 的 AI Infra skills 的目录构成与五类高价值上下文；
+- 说出 BBuf 的 AI Infra skills 的目录构成与五类高价值上下文（第 7 章 [BBuf skills](/guide/bbuf/) 给出完整拆解）；
 - 按“触发条件、输入、步骤、验证、失败模式”写出一个最小 skill；
 - 识别 skill 写作中的常见反模式，并为它设计维护方式。
 
@@ -65,31 +65,29 @@ ncu-report 把 NVIDIA Nsight Compute 的分析顺序固化为六个维度，避�
 
 它还演示了 skill 应该怎样被 Agent 发现：安装到 `~/.claude/skills/<skill_name>/SKILL.md`（用户级）或项目内 `.claude/skills/`（项目级）后，模型会在会话开始时看到 skill 的名字与描述，描述写得越像「触发信号」，误触发与漏触发就越少——这正是「触发条件」一栏在 frontmatter 里存在的原因。
 
-## BBuf 的 AI Infra skills
+## 一个真实样本：BBuf 的 AI Infra skills
 
-BBuf 的 AI-Infra-Auto-Driven-SKILLS 仓库把一线 Infra 工作中反复用到的上下文整理成 skill。截至 2026-10-29，仓库列出 11 个 skill，覆盖 serving 基准、容量规划、profiling 分析、流水线分析、层追踪、模型优化、代码 review 与事故分诊等方向；其中 Day-0 支持 skill 位于 `model-optimization/` 子目录。具体清单以仓库为准。
+第 7 章 [BBuf skills](/guide/bbuf/) 用一个公开仓库逐层拆过「经验怎么变成可检索的 skill」。这里只取它对写 skill 直接有用的两点：**目录长什么样**，以及**哪些上下文必须显式写出来**。
 
-| skill 目录 | 作用 |
-| --- | --- |
-| `llm-serving-auto-benchmark` | serving 的自动化基准，帮你快速得到可比较的延迟/吞吐口径 |
-| `llm-serving-capacity-planner` | 从 SGLang/vLLM 日志解释启动显存、KV cache 预算、请求容量与 OOM 压力 |
-| `llm-torch-profiler-analysis` | 读取 torch profiler trace，输出 kernel、重叠与融合机会表 |
-| `torch-profiler-layer-track` | 为 trace 补层号与紧凑 GPU 泳道，便于在 Perfetto 中按层导航 |
-| `llm-pipeline-analysis` | 把 trace 拆成前向、层与 kernel，并用锚点与 Perfetto 区间定位 |
-| `model-optimization/sglang-model-day0-support` | 把新模型架构转成 SGLang Day-0 支持的 PR DAG、验证矩阵与发布锁 |
-| `model-architecture-diagram` | 检索并返回公开的模型结构图，帮助快速对齐算子与模块 |
-| `model-compute-simulation` | 估算 serving shape 下的算子形状、FLOPs 与 MFU，或把 kernel 映射回算子 |
-| `sglang-humanize-review` | 按维护者方式评审 SGLang PR，依据完整的人工 review 语料 |
-| `sglang-prod-incident-triage` | 把队列增长、超时、错误输出或卡死转成复现与下一步调试 |
-| `sglang-explainer-video` | 把讲解整理成视频素材 |
+BBuf 的 AI-Infra-Auto-Driven-SKILLS 仓库把一线 Infra 工作中反复用到的上下文整理成 skill。截至 2026-10-30，仓库列出 11 个 skill，覆盖 serving 基准、容量规划、profiling 分析、流水线分析、层追踪、模型优化、代码 review 与事故分诊等方向；其中 Day-0 支持 skill 位于 `model-optimization/` 子目录。具体清单以仓库为准。
 
-与 kernel 优化最相关的，是下面几类“补 context”的工作。
+| 方向 | 代表 skill | 解决的问题 |
+| --- | --- | --- |
+| 基准与容量 | `llm-serving-auto-benchmark`、`llm-serving-capacity-planner` | 跨框架比较 serving 性能；从日志解释显存、KV cache 预算与 OOM 压力 |
+| Profiling 与算子 | `llm-torch-profiler-analysis`、`torch-profiler-layer-track`、`llm-pipeline-analysis`、`model-compute-simulation` | 从 trace 定位 kernel 归属与重叠；估算算子形状、FLOPs 与 MFU |
+| 上游协作与运维 | `sglang-humanize-review`、`sglang-prod-incident-triage`、`model-optimization/sglang-model-day0-support` | 评审上游 PR、排查线上事故、支撑新模型的 Day-0 上线 |
 
-1. **prefill 与 decode 分开看**。prefill 通常计算密集、序列长、并行度高；decode 通常受显存带宽与延迟约束、batch 形状更碎。把两者混在一个平均值里，会同时掩盖两边的瓶颈。Skill 要告诉 Agent 分别采集、分别设 baseline。
-2. **kernel 与 Python 行的映射**。Profiling 看到的是 kernel 名，代码里写的是 `torch.nn` 调用或自定义 op。Skill 提供一个从 kernel 回溯到 Python 调用点的路径，例如用 profiler 的调用栈、算子注册表或命名约定，避免 Agent 改错层。
-3. **fusion 的 dtype 与 shape 前提**。两个算子能融合，不代表所有输入都成立：dtype 提升规则、布局、对齐、边界 shape、数值精度都可能让融合失效。Skill 要把“成立条件”和“回退路径”写清楚，而不是只给一个成功案例。
-4. **上游 PR 检索**。在动手前先查上游是否已有类似实现或讨论，可以避免重复劳动，也能借到测试与基准。Skill 应给出检索关键词、仓库范围、如何判断“可复用”与“仅相关”。
-5. **历史 PR 档案**。仓库里的 `model-pr-optimization-history` 整理了 **118 份模型 PR 历史**，覆盖 SGLang、vLLM、TensorRT-LLM 与 TokenSpeed 四个服务框架，按模型族分目录，并提供 `scripts/query.py` 检索（支持按框架、模型、关键词与中英文筛选）。它的价值不是让 Agent 背答案，而是让它在遇到相似算子时快速定位先例，再判断哪些结论仍然适用——该仓库也明确说明，历史 PR 证据保留审计日期，刷新源码不等于重跑 GPU 测试，引用前要回到当前分支确认。
+与 kernel 优化最相关的，是下面几类“补 context”的工作——它们共同的特点是：知识本来就在，只是散着。
+
+| 上下文 | 为什么必须写出来 | skill 该给什么 |
+| --- | --- | --- |
+| prefill 与 decode 分开看 | 两者瓶颈不同，混在一个平均值里会同时掩盖问题 | 分别采集、分别设 baseline、分别报告 |
+| kernel 与 Python 行的映射 | Profiling 看到 kernel 名，代码里写的是 `torch.nn` 调用 | 从 kernel 回溯调用点的路径，以及哪一档结论可以直接引用 |
+| fusion 的 dtype 与 shape 前提 | 融合成立依赖 dtype 提升、布局、对齐与边界 shape | 成立条件与回退路径，而不是一个成功案例 |
+| 上游 PR 检索 | 避免重复劳动，也能借到别人的测试与基准 | 检索关键词、仓库范围，以及如何判断“可复用”与“仅相关” |
+| 历史 PR 档案 | 相似算子的先例是最快的冷启动路径 | 检索入口、审计日期，以及引用前如何复核 |
+
+最后一行是这个仓库的特色：它把 **118 份模型 PR 历史档案**做成了资产，按框架分目录，并提供 `scripts/query.py` 检索（支持按框架、模型、关键词与中英文筛选）。档案带审计日期，未评审的开放 PR 不计入，仓库明确写着“刷新源码不等于重跑 GPU 测试”。细节见第 7 章。
 
 <Aside type="tip" title="Skill 与 RAG 的区别">
 RAG 解决“找得到”，skill 还要解决“找到之后怎么做、做完怎么验”。只有检索片段、没有步骤与验收，Agent 仍然可能停在“我看过了”。

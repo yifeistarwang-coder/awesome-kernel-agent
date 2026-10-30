@@ -1,0 +1,139 @@
+---
+import Figure from '../Figure.astro';
+---
+
+<Figure caption="BBuf AI-Infra-Auto-Driven-SKILLS 的组织方式：一线经验先被写成带触发条件与脚本的 skill，再通过 118 份模型 PR 档案的检索入口找到先例，最终输出可直接写进任务合同的结论；新的 PR 与 trace 再归档回经验库，形成回路。">
+	<div class="ka-diagram ka-bbuf">
+		<svg
+			viewBox="0 0 960 440"
+			role="img"
+			aria-labelledby="ka-bbuf-title ka-bbuf-desc"
+			xmlns="http://www.w3.org/2000/svg"
+		>
+			<title id="ka-bbuf-title">BBuf AI Infra skills 的组织方式</title>
+			<desc id="ka-bbuf-desc">
+				左侧是一线经验来源：serving 基准与容量、profiler trace 分析、上游 PR 评审与事故分诊、模型 Day-0 支持。中间是 skill 的三段结构：SKILL.md 写触发条件与步骤，references 写口径与适用前提，scripts 提供可执行的检查与检索。右侧是检索入口：query.py 按框架与关键词检索 118 份模型 PR 档案，审计用 diff-card，未评审的开放 PR 不计入，open-pr-watch 跟踪上游新 PR。底部是输出与回路：结论直接写进任务合同，新的 PR 与 trace 归档回经验库，每条结论都带审计日期。
+			</desc>
+
+			<defs>
+				<pattern id="ka-bbuf-grid" width="28" height="28" patternUnits="userSpaceOnUse">
+					<path d="M28 0H0V28" fill="none" stroke="var(--ka-dg-grid)" stroke-width="1"></path>
+				</pattern>
+				<marker
+					id="ka-bbuf-arrow"
+					viewBox="0 0 8 8"
+					refX="6.6"
+					refY="4"
+					markerWidth="7"
+					markerHeight="7"
+					orient="auto-start-reverse"
+				>
+					<path d="M0 0 8 4 0 8Z" fill="var(--ka-dg-line-strong)"></path>
+				</marker>
+				<marker
+					id="ka-bbuf-arrow-teal"
+					viewBox="0 0 8 8"
+					refX="6.6"
+					refY="4"
+					markerWidth="7"
+					markerHeight="7"
+					orient="auto-start-reverse"
+				>
+					<path d="M0 0 8 4 0 8Z" fill="var(--ka-dg-teal)"></path>
+				</marker>
+			</defs>
+
+			<rect width="960" height="440" fill="url(#ka-bbuf-grid)" opacity="0.6"></rect>
+
+			<text x="28" y="34" class="dg-mono dg-muted" font-size="12.5">
+				BBUF AI-INFRA SKILLS · 把一线经验写成 Agent 可调用的 skill
+			</text>
+			<text x="932" y="34" text-anchor="end" class="dg-mono dg-teal" font-size="12.5">
+				11 SKILLS · 118 PR DOSSIERS
+			</text>
+
+			<!-- 01 经验来源 -->
+			<g>
+				<rect x="28" y="88" width="228" height="200" rx="13" class="dg-surface dg-line"></rect>
+				<text x="44" y="114" class="dg-mono dg-faint" fill="var(--ka-dg-muted)" font-size="12">01 / SOURCES</text>
+				<text x="44" y="147" class="dg-title dg-text" font-size="21">一线经验</text>
+				<text x="44" y="182" class="dg-muted" font-size="14.5">serving 基准与容量</text>
+				<text x="44" y="208" class="dg-muted" font-size="14.5">profiler trace 分析</text>
+				<text x="44" y="234" class="dg-muted" font-size="14.5">上游 PR 评审与事故</text>
+				<text x="44" y="260" class="dg-muted" font-size="14.5">模型 Day-0 支持</text>
+			</g>
+
+			<!-- 02 skill 结构 -->
+			<g>
+				<rect x="280" y="88" width="296" height="200" rx="14" class="dg-surface-2 dg-line-strong"></rect>
+				<text x="298" y="114" class="dg-mono dg-teal" font-size="12">02 / SKILL</text>
+				<text x="298" y="147" class="dg-title dg-text" font-size="21">skill 的三段结构</text>
+
+				<g>
+					<rect x="298" y="162" width="260" height="36" rx="9" fill="var(--ka-dg-surface)" stroke="var(--ka-dg-teal)" stroke-width="1"></rect>
+					<text x="312" y="185" class="dg-text" font-size="14">SKILL.md · 触发条件与步骤</text>
+				</g>
+				<g>
+					<rect x="298" y="204" width="260" height="36" rx="9" fill="var(--ka-dg-surface)" stroke="var(--ka-dg-teal)" stroke-width="1"></rect>
+					<text x="312" y="227" class="dg-text" font-size="14">references/ · 口径与前提</text>
+				</g>
+				<g>
+					<rect x="298" y="246" width="260" height="36" rx="9" fill="var(--ka-dg-surface)" stroke="var(--ka-dg-teal)" stroke-width="1"></rect>
+					<text x="312" y="269" class="dg-text" font-size="14">scripts/ · 可执行的检查</text>
+				</g>
+			</g>
+
+			<!-- 03 检索入口 -->
+			<g>
+				<rect x="600" y="88" width="332" height="200" rx="14" class="dg-surface dg-line"></rect>
+				<text x="618" y="114" class="dg-mono dg-teal" font-size="12">03 / ARCHIVE</text>
+				<text x="618" y="147" class="dg-title dg-text" font-size="21">118 份 PR 档案</text>
+				<text x="618" y="182" class="dg-muted" font-size="14.5">scripts/query.py 按框架与关键词</text>
+				<text x="618" y="208" class="dg-muted" font-size="13">SGLang、vLLM、TensorRT-LLM、TokenSpeed</text>
+				<text x="618" y="234" class="dg-muted" font-size="14.5">diff-card 审计，未评审 PR 不计</text>
+				<text x="618" y="260" class="dg-muted" font-size="14.5">open-pr-watch 跟踪上游新 PR</text>
+			</g>
+
+			<!-- 主流程箭头 -->
+			<g aria-hidden="true" fill="none" stroke="var(--ka-dg-line-strong)" stroke-width="1.4">
+				<path d="M256 188H274" marker-end="url(#ka-bbuf-arrow)"></path>
+				<path d="M576 188H594" marker-end="url(#ka-bbuf-arrow)"></path>
+			</g>
+
+			<!-- 回路：档案 → 输出 → 归档回来源 -->
+			<g aria-hidden="true">
+				<path
+					d="M766 288V310"
+					fill="none"
+					stroke="var(--ka-dg-teal)"
+					stroke-width="1.3"
+					stroke-dasharray="4 5"
+					marker-end="url(#ka-bbuf-arrow-teal)"
+				></path>
+				<path
+					d="M142 316V294"
+					fill="none"
+					stroke="var(--ka-dg-teal)"
+					stroke-width="1.3"
+					stroke-dasharray="4 5"
+					marker-end="url(#ka-bbuf-arrow-teal)"
+				></path>
+			</g>
+			<text x="152" y="309" class="dg-mono dg-faint" fill="var(--ka-dg-muted)" font-size="11.5">
+				归档回库
+			</text>
+
+			<!-- 04 输出 -->
+			<g>
+				<rect x="28" y="316" width="904" height="94" rx="14" class="dg-surface dg-line"></rect>
+				<text x="48" y="345" class="dg-mono dg-teal" font-size="12">04 / OUTPUT · 可直接写进任务合同</text>
+				<text x="48" y="374" class="dg-muted" font-size="15.5">
+					kernel 对应哪一行 Python、fusion 在什么 dtype/shape 下成立、上游是否已有先例
+				</text>
+				<text x="48" y="396" class="dg-mono dg-faint" fill="var(--ka-dg-muted)" font-size="12">
+					每条结论都带审计日期——刷新源码不等于重跑 GPU 测试
+				</text>
+			</g>
+		</svg>
+	</div>
+</Figure>
