@@ -180,9 +180,9 @@ Reward hacking 指 Agent 优化了你写的指标，却没有完成你真正想�
 | 日志缺失 | 无法比较候选，复盘靠记忆 | 只追加 ledger，固定字段 |
 | 评测可写 | Agent 改阈值或 baseline | 评测文件只读，改动进 diff |
 
-## 回到主线：九篇正文，一个闭环
+## 回到主线：十篇正文，一个闭环
 
-把九篇正文压缩成一张表，会发现它们回答的是同一串问题：
+把十篇正文压缩成一张表，会发现它们回答的是同一串问题：
 
 | 篇章 | 回答的问题 | 你应该留下的产物 |
 | --- | --- | --- |
@@ -193,6 +193,7 @@ Reward hacking 指 Agent 优化了你写的指标，却没有完成你真正想�
 | Humanize | 谁来判断“做完了” | 写/判分离的检查清单 |
 | TIRx | Agent 手里的工具长什么样 | 一份工具层清单与每项的最小替代 |
 | BBuf skills | 经验从哪来，怎么被检索 | 一条可检索的知识入口与带日期的证据 |
+| ForgeKernel | 优化上限怎么自己往前走 | 一份架构先定的里程碑骨架与自演化边界 |
 | Skills | 经验怎么复用 | 一个可执行、可维护的 skill |
 | 自建 harness | 怎么把零件装成系统 | 能硬停、能复盘的 v0 |
 
@@ -202,7 +203,7 @@ Reward hacking 指 Agent 优化了你写的指标，却没有完成你真正想�
 
 1. **接一个真实任务**。把 v0 用到你正在读的仓库或课程项目上，连续跑一周，统计成功率、平均轮数与单位任务成本。
 2. **把 evaluator 当产品维护**。每发现一次绕过，就补一条测试并记录它防住了什么；这比换更强的模型更能提升下限。
-3. **跟踪上游**。KDA、Humanize 与 TIRx 都在演进，按“版本 + 日期 + 失效条件”更新来源登记表，而不是追逐每一个新名词。
+3. **跟踪上游**。KDA、Humanize、TIRx 与 ForgeKernel 都在演进，按“版本 + 日期 + 失效条件”更新来源登记表，而不是追逐每一个新名词。
 
 这本书的终点不是复刻 KDA 或 Humanize，而是拥有一个自己能解释、能验证、能停下来的循环。做到这一点，你就已经在本领域里“从零读到了动手”。
 
@@ -214,7 +215,7 @@ Reward hacking 指 Agent 优化了你写的指标，却没有完成你真正想�
 - [ ] 我能解释 KDA for KDA 的 3.74× 方案为何是 reward hacking，以及 evaluator 如何升级。
 - [ ] 我能说出持续跟踪上游时需要记录哪些版本信息。
 - [ ] 我有一个可以为小 kernel 运行的 v0 方案，并知道它的第一道防线是什么。
-- [ ] 我能把九篇正文压成一张问题—产物对照表，并说出自己下一步要补的一环。
+- [ ] 我能把十篇正文压成一张问题—产物对照表，并说出自己下一步要补的一环。
 
 ### 练习
 
@@ -257,6 +258,8 @@ Reward hacking 指 Agent 优化了你写的指标，却没有完成你真正想�
 - [TIRx harness](https://github.com/mlc-ai/tirx-harness)：编译器、知识库、分析工具与基准服务的开源 harness。
 - [TIRx 文档](https://tirxharness.mlc.ai/docs/)：安装、快速上手、workload contract 与扩展指南。
 - [TIRx 博客](https://blog.mlc.ai/2026/09/29/tirx-harness-an-open-compiler-harness-for-agentic-gpu-programming)：公开结果、架构与设计动机。
+- [ForgeKernel](https://github.com/OpenBMB/ForgeKernel)：架构先定的里程碑、跨算子硬件知识库与自演化脚本的开源 harness。
+- [JustGoal 论文](https://arxiv.org/abs/2610.36434)：goal-only 基线与同模型对照——给专用机制定下的举证责任。
 - [KDA 官方博客（reward hacking 与验收加固）](https://nvlabs.github.io/kda/blog/2026-09-27-kda-for-kda/)：2.96×、五类作弊与六道 gate 的一手复盘。
 - [NVIDIA Nsight Compute](https://docs.nvidia.com/nsight-compute/NsightCompute/index.html)：ncu 指标、section 与命令行参数的官方参考。
 - 上一章回顾：[Skills 与经验沉淀](/guide/skills/)，看领域知识如何被组织成可加载的 skill。

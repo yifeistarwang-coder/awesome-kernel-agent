@@ -1,0 +1,145 @@
+---
+import Figure from '../Figure.astro';
+---
+
+<Figure caption="ForgeKernel 的两层循环与自演化回路：任务与参考实现进入后，外层由 teacher 把「架构先定」蒸馏成 M0 并冻结，内层由 student 一次实现一行决策、由 GPU 作业判正确性与计时；三个产物（milestone、硬件知识库、meta-milestone）各自划定信息边界，被接受的 kernel 封存后成为下一轮 run 的参考实现，链条直到噪声地板才停。">
+	<div class="ka-diagram ka-forge">
+		<svg
+			viewBox="0 0 960 510"
+			role="img"
+			aria-labelledby="ka-forge-title ka-forge-desc"
+			xmlns="http://www.w3.org/2000/svg"
+		>
+			<title id="ka-forge-title">ForgeKernel 的两层循环与自演化回路</title>
+			<desc id="ka-forge-desc">
+				第一行是三段主流程：任务与参考实现（算子语义、shape、目标与预算；参考实现可以读源码，也可以只看硬件行为；目标耗时等于参考耗时除以 ratio）连接到外层循环 teacher（侦察参考的运行、计时与 profile，蒸馏 M0 的切分、tile、warp 角色与寄存器共享内存预算，gate 通过即冻结），再连接到内层循环 student（一次只实现一行决策，由 GPU 作业判定正确性、计时并 profile，正确性失败即回滚）。第二行是三个产物：per-op milestone 由 teacher 写、student 读，只含决策与参数不含实现体；硬件知识库跨算子复用，teacher 认证、student 查，是唯一允许含示例代码的产物；meta-milestone 是写 milestone 的策略本身。第三行是判据：正确性是硬门，性能取几何平均，预算为内层 hours 与外层 max_meta，平台期只说明落在噪声地板，不等于已是最优。顶部虚线是自演化回路：本轮被接受的 kernel 封存后成为下一轮 run 的参考实现。
+			</desc>
+
+			<defs>
+				<pattern id="ka-forge-grid" width="28" height="28" patternUnits="userSpaceOnUse">
+					<path d="M28 0H0V28" fill="none" stroke="var(--ka-dg-grid)" stroke-width="1"></path>
+				</pattern>
+				<marker
+					id="ka-forge-arrow"
+					viewBox="0 0 8 8"
+					refX="6.6"
+					refY="4"
+					markerWidth="7"
+					markerHeight="7"
+					orient="auto-start-reverse"
+				>
+					<path d="M0 0 8 4 0 8Z" fill="var(--ka-dg-line-strong)"></path>
+				</marker>
+				<marker
+					id="ka-forge-arrow-teal"
+					viewBox="0 0 8 8"
+					refX="6.6"
+					refY="4"
+					markerWidth="7"
+					markerHeight="7"
+					orient="auto-start-reverse"
+				>
+					<path d="M0 0 8 4 0 8Z" fill="var(--ka-dg-teal)"></path>
+				</marker>
+			</defs>
+
+			<rect width="960" height="510" fill="url(#ka-forge-grid)" opacity="0.6"></rect>
+
+			<text x="28" y="32" class="dg-mono dg-muted" font-size="12.5">
+				FORGEKERNEL · 架构先定，再逐行实现
+			</text>
+			<text x="928" y="32" text-anchor="end" class="dg-mono dg-teal" font-size="12.5">
+				TEACHER ↔ STUDENT · SELF-EVOLUTION
+			</text>
+
+			<!-- 自演化回路：student → 封存 → 下一轮 reference -->
+			<g aria-hidden="true">
+				<path
+					d="M928 150H946V62H170V82"
+					fill="none"
+					stroke="var(--ka-dg-teal)"
+					stroke-width="1.3"
+					stroke-dasharray="5 5"
+					marker-end="url(#ka-forge-arrow-teal)"
+				></path>
+			</g>
+			<text x="558" y="52" text-anchor="middle" class="dg-mono dg-teal" font-size="12.5">
+				自演化：被接受的 kernel 封存后，成为下一轮 run 的参考实现
+			</text>
+
+			<!-- 01 任务与参考实现 -->
+			<g>
+				<rect x="28" y="88" width="284" height="158" rx="13" class="dg-surface dg-line"></rect>
+				<text x="46" y="112" class="dg-mono dg-faint" fill="var(--ka-dg-muted)" font-size="11.5">01 / TASK &amp; REFERENCE</text>
+				<text x="46" y="139" class="dg-title dg-text" font-size="19">任务与参考实现</text>
+				<text x="46" y="166" class="dg-muted" font-size="13.5">算子语义、shape、目标与预算</text>
+				<text x="46" y="188" class="dg-muted" font-size="13.5">参考实现：读源码，或只看行为</text>
+				<text x="46" y="210" class="dg-muted" font-size="13.5">目标耗时 = 参考耗时 ÷ ratio</text>
+				<text x="46" y="232" class="dg-mono dg-faint" fill="var(--ka-dg-muted)" font-size="12">默认 ratio 1.2×</text>
+			</g>
+
+			<!-- 02 外层循环 teacher -->
+			<g>
+				<rect x="336" y="88" width="284" height="158" rx="14" class="dg-surface-2 dg-line-strong"></rect>
+				<text x="354" y="112" class="dg-mono dg-teal" font-size="11.5">02 / OUTER LOOP · TEACHER</text>
+				<text x="354" y="139" class="dg-title dg-text" font-size="19">架构先定</text>
+				<text x="354" y="166" class="dg-muted" font-size="13.5">侦察：运行、计时、profile 参考</text>
+				<text x="354" y="188" class="dg-muted" font-size="13.5">蒸馏 M0：切分、tile、warp 角色</text>
+				<text x="354" y="210" class="dg-muted" font-size="13.5">寄存器与共享内存预算一次定死</text>
+				<text x="354" y="232" class="dg-mono dg-faint" fill="var(--ka-dg-muted)" font-size="12">gate 通过即冻结</text>
+			</g>
+
+			<!-- 03 内层循环 student -->
+			<g>
+				<rect x="644" y="88" width="284" height="158" rx="14" class="dg-surface dg-line"></rect>
+				<text x="662" y="112" class="dg-mono dg-teal" font-size="11.5">03 / INNER LOOP · STUDENT</text>
+				<text x="662" y="139" class="dg-title dg-text" font-size="19">一次一行决策</text>
+				<text x="662" y="166" class="dg-muted" font-size="13.5">GPU 作业：判正确性、计时、profile</text>
+				<text x="662" y="188" class="dg-muted" font-size="13.5">候选与参考在同一作业里配对</text>
+				<text x="662" y="210" class="dg-muted" font-size="13.5">正确性失败即回滚</text>
+				<text x="662" y="232" class="dg-mono dg-faint" fill="var(--ka-dg-muted)" font-size="12">连续无新最优 → 交回 teacher</text>
+			</g>
+
+			<!-- 主流程箭头 -->
+			<g aria-hidden="true" fill="none" stroke="var(--ka-dg-line-strong)" stroke-width="1.4">
+				<path d="M316 164H330" marker-end="url(#ka-forge-arrow)"></path>
+				<path d="M624 164H638" marker-end="url(#ka-forge-arrow)"></path>
+			</g>
+
+			<!-- 三个产物 -->
+			<g>
+				<rect x="28" y="270" width="284" height="108" rx="13" class="dg-surface dg-line"></rect>
+				<text x="46" y="292" class="dg-mono dg-teal" font-size="11.5">ARTIFACT 01 / MILESTONE</text>
+				<text x="46" y="316" class="dg-text" font-size="16">每算子一份</text>
+				<text x="46" y="340" class="dg-muted" font-size="13">teacher 写、student 读</text>
+				<text x="46" y="362" class="dg-muted" font-size="13">只给决策与参数，不含实现体</text>
+			</g>
+
+			<g>
+				<rect x="336" y="270" width="284" height="108" rx="13" class="dg-surface dg-line"></rect>
+				<text x="354" y="292" class="dg-mono dg-teal" font-size="11.5">ARTIFACT 02 / HW_KB</text>
+				<text x="354" y="316" class="dg-text" font-size="16">跨算子共用</text>
+				<text x="354" y="340" class="dg-muted" font-size="13">teacher 认证、student 查阅</text>
+				<text x="354" y="362" class="dg-muted" font-size="13">硬件机制与示例代码，唯一可含代码</text>
+			</g>
+
+			<g>
+				<rect x="644" y="270" width="284" height="108" rx="13" class="dg-surface dg-line"></rect>
+				<text x="662" y="292" class="dg-mono dg-teal" font-size="11.5">ARTIFACT 03 / META-MILESTONE</text>
+				<text x="662" y="316" class="dg-text" font-size="16">写 milestone 的策略</text>
+				<text x="662" y="340" class="dg-muted" font-size="13">两层分桶、决策 DAG、原子组</text>
+				<text x="662" y="362" class="dg-muted" font-size="13">换算子不必改 harness</text>
+			</g>
+
+			<!-- 判据与停止条件 -->
+			<g>
+				<rect x="28" y="402" width="900" height="88" rx="14" class="dg-surface-2 dg-line-strong"></rect>
+				<text x="48" y="424" class="dg-mono dg-amber" font-size="11.5">04 / GATES &amp; STOP CONDITIONS</text>
+				<text x="48" y="450" class="dg-muted" font-size="13.5">正确性是硬门；性能取几何平均</text>
+				<text x="48" y="472" class="dg-muted" font-size="13.5">预算：内层 hours + 外层 max_meta</text>
+				<text x="508" y="450" class="dg-muted" font-size="13.5">平台期 = 噪声地板（≥1.5%）</text>
+				<text x="508" y="472" class="dg-muted" font-size="13.5">不等于已找到最优解</text>
+			</g>
+		</svg>
+	</div>
+</Figure>

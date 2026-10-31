@@ -1,6 +1,6 @@
 ---
 title: 导读与环境：从一块 GPU 到一条学习路线
-description: 理解 Kernel Agent 要解决的问题、四个代表项目与本站路线，并完成可复现的环境自检。
+description: 理解 Kernel Agent 要解决的问题、五个代表项目与本站路线，并完成可复现的环境自检。
 ---
 
 import { Aside, Steps } from '@astrojs/starlight/components';
@@ -8,13 +8,13 @@ import Exercise from '../../../components/Exercise.astro';
 
 如果你写过 PyTorch，大概率有过这样的体验：模型能跑，但某个算子占了大部分时间；想自己写 CUDA，却被访存、occupancy（占用率）、数值误差和 profiling（性能分析）工具挡在门外。Kernel Agent 想做的，就是把「提出目标、读代码、改 kernel、跑测试、看 profiler、再改」这一整条工程循环（loop），交给一个会使用工具的编码 Agent 来执行，而人负责定义目标与验收。
 
-这一章先建立全景：Kernel Agent 到底是什么、为什么现在值得学、四个代表项目各自解决哪一段问题，以及你需要准备怎样的环境。读完你应当能判断：自己手上的机器能不能开始，不能的话该走哪条替代路径。
+这一章先建立全景：Kernel Agent 到底是什么、为什么现在值得学、五个代表项目各自解决哪一段问题，以及你需要准备怎样的环境。读完你应当能判断：自己手上的机器能不能开始，不能的话该走哪条替代路径。
 
 ## 学习目标
 
 - 用自己的话解释 Kernel Agent，并区分它与「让聊天模型写一段 CUDA」的差别。
 - 说出 Kernel Agent 在 2026 年出现的三个条件，并各举一个反例或风险。
-- 概述 KDA（Kernel Design Agents）、Humanize、TIRx Harness、BBuf skills 四者的分工与入口，并说明它们分别回答「怎么组织流程」「怎么保证判断」「给 Agent 什么工具」「怎么把经验喂给 Agent」。
+- 概述 KDA（Kernel Design Agents）、Humanize、TIRx Harness、BBuf skills 与 ForgeKernel 五者的分工与入口，并说明它们分别回答「怎么组织流程」「怎么保证判断」「给 Agent 什么工具」「怎么把经验喂给 Agent」「优化上限怎么自己往前走」。
 - 按本站路线规划接下来的阅读与动手顺序。
 - 完成 GPU、CUDA、ncu、Python 与 Agent CLI 的环境自检，或明确选择无 GPU 路径。
 
@@ -56,9 +56,9 @@ Claude Code、Codex CLI 这类终端 Agent 已经能维持多轮会话、读写�
 
 三个条件合起来：任务有经济价值，结果可验证，Agent 能长程执行。Kernel Agent 因此从演示走向了可复现的工程流程。
 
-## 四个代表项目
+## 五个代表项目
 
-不要把它们当成四个竞品。KDA、Humanize、TIRx Harness、BBuf skills 分别回答「怎么组织 kernel 工作流」「怎么保证判断可靠」「Agent 能拿到什么工具与知识」「怎么把经验喂给 Agent」。
+不要把它们当成五个竞品。KDA、Humanize、TIRx Harness、BBuf skills 与 ForgeKernel 分别回答「怎么组织 kernel 工作流」「怎么保证判断可靠」「Agent 能拿到什么工具与知识」「怎么把经验喂给 Agent」「优化能不能不停在已知最好实现上」。
 
 | 项目 | 一句话定位 | 你会学到 | 入口 |
 | --- | --- | --- | --- |
@@ -66,14 +66,17 @@ Claude Code、Codex CLI 这类终端 Agent 已经能维持多轮会话、读写�
 | Humanize | 判断工程（Judgement Engineering）：写/判分离、计划合同、机械 gate | 为什么 Agent 的自评不可靠，如何用流程约束它 | [论文](https://arxiv.org/abs/2610.08900) / [仓库](https://github.com/PolyArch/humanize) |
 | TIRx Harness | MLC 开源的编译器 harness，把 kernel 知识库、编译期分析与基准服务接给 Agent | 编译器如何成为 Agent 的工具层，参考实现如何进入搜索空间 | [TIRx 博客](https://blog.mlc.ai/2026/09/29/tirx-harness-an-open-compiler-harness-for-agentic-gpu-programming) |
 | BBuf skills | 把 AI Infra 专家经验沉淀成 Agent 可检索的 skill 与 118 份模型 PR 历史档案 | prefill/decode 视角、kernel 与 Python 的映射、fusion 成立条件 | [AI-Infra-Auto-Driven-SKILLS](https://github.com/BBuf/AI-Infra-Auto-Driven-SKILLS) |
+| ForgeKernel | OpenBMB 开源的自演化 kernel agent：每一轮被接受的 kernel 成为下一轮的参考实现 | 架构先定的里程碑、teacher/student 两层循环、基线怎么自己往前走 | [OpenBMB/ForgeKernel](https://github.com/OpenBMB/ForgeKernel) |
 
-四个都是本站的案例章节（第 4 到 7 章），只是关注点不同：KDA 与 Humanize 关心流程与判断，TIRx 关心 Agent 能拿到什么工具，BBuf skills 关心经验怎么沉淀——对应 [KDA](/guide/kda/)、[Humanize](/guide/humanize/)、[TIRx](/guide/tirx/)、[BBuf skills](/guide/bbuf/) 四章。TIRx 在 KDA workload 上报告的结果是 forward 2.94×、backward 6.84×、MSA prefill 2.59×（均为几何平均；来源为 [MLC TIRx 博客](https://blog.mlc.ai/2026/09/29/tirx-harness-an-open-compiler-harness-for-agentic-gpu-programming)，2026-09-29）。注意这是 TIRx 自己的实验组，基线与 KDA v0.5 的三项加速比不同，两组数字不可横向比较。
+五个都是本站的案例章节（第 4 到 8 章），只是关注点不同：KDA 与 Humanize 关心流程与判断，TIRx 关心 Agent 能拿到什么工具，BBuf skills 关心经验怎么沉淀，ForgeKernel 关心优化上限怎么被自己推高——对应 [KDA](/guide/kda/)、[Humanize](/guide/humanize/)、[TIRx](/guide/tirx/)、[BBuf skills](/guide/bbuf/)、[ForgeKernel](/guide/forgekernel/) 五章。TIRx 在 KDA workload 上报告的结果是 forward 2.94×、backward 6.84×、MSA prefill 2.59×（均为几何平均；来源为 [MLC TIRx 博客](https://blog.mlc.ai/2026/09/29/tirx-harness-an-open-compiler-harness-for-agentic-gpu-programming)，2026-09-29）。注意这是 TIRx 自己的实验组，基线与 KDA v0.5 的三项加速比不同，两组数字不可横向比较。
+
+还有一条跨越案例的线索值得先记下：ForgeKernel 团队在 2026-10 发布的 [JustGoal 论文](https://arxiv.org/abs/2610.36434)给出了一个「只给目标、不给任何专用机制」的基线，并要求专用 harness 必须在**同模型、同 scope** 的对照下证明收益。这条对本站在第 8 章展开，也是全书结尾那句结论的另一半。
 
 KDA 官方 README 明确说这是一个**早期研究原型**、仍在活跃开发；Humanize 的 Humanize2 也仍在演进。因此本站讲的是「截至 2026-10 的公开设计」，具体命令、模型与数字以官方为准。
 
 ## 本站的学习路线
 
-主线是：先理解问题，再补两块基础，然后拆四个真实案例，最后自己搭一个最小 harness（执行框架）。
+主线是：先理解问题，再补两块基础，然后拆五个真实案例，最后自己搭一个最小 harness（执行框架）。
 
 | 章节 | 核心问题 | 读完能做什么 |
 | --- | --- | --- |
@@ -84,10 +87,11 @@ KDA 官方 README 明确说这是一个**早期研究原型**、仍在活跃开�
 | 5 Humanize 案例 | 怎么保证「真做完了」 | 设计写/判分离与检查清单 |
 | 6 TIRx 案例 | Agent 能拿到什么工具 | 读懂一个编译器 harness 的分层 |
 | 7 BBuf skills 案例 | 经验从哪来，怎么被检索 | 拆一个真实的 Infra 经验库 |
-| 8 Skills 与经验沉淀 | 怎么让 Agent 冷启动更快 | 写一个自己的 skill |
-| 9 自建 harness | 如何把各章组合起来 | 设计自己的 v0 harness |
+| 8 ForgeKernel 案例 | 优化上限怎么自己往前走 | 读懂架构先定与自演化回路 |
+| 9 Skills 与经验沉淀 | 怎么让 Agent 冷启动更快 | 写一个自己的 skill |
+| 10 自建 harness | 如何把各章组合起来 | 设计自己的 v0 harness |
 
-如果你时间有限，最低限度的顺序是 1 → 2 → 3 → 4；第 5 章 [Humanize](/guide/humanize/) 解释了为什么第 4 章的流程必须配独立验收，建议不要跳过。第 6 章 [TIRx](/guide/tirx/) 是对照阅读，读它是为了知道一个成熟 harness 把工具层做成了什么样；第 7 章 [BBuf skills](/guide/bbuf/) 是一个可以照抄的经验库样本，第 8、9 章更偏工程化，可以在做过一次小任务后再读。术语不熟时先查[术语表](/glossary/)，它按章节索引了全站出现的缩写。
+如果你时间有限，最低限度的顺序是 1 → 2 → 3 → 4；第 5 章 [Humanize](/guide/humanize/) 解释了为什么第 4 章的流程必须配独立验收，建议不要跳过。第 6 章 [TIRx](/guide/tirx/) 是对照阅读，读它是为了知道一个成熟 harness 把工具层做成了什么样；第 7 章 [BBuf skills](/guide/bbuf/) 是一个可以照抄的经验库样本；第 8 章 [ForgeKernel](/guide/forgekernel/) 讲的是「基线本身会往前走」这件事对 harness 设计提出的新要求，可以放在读完案例后再看；第 9、10 章更偏工程化，可以在做过一次小任务后再读。术语不熟时先查[术语表](/glossary/)，它按章节索引了全站出现的缩写。
 
 先补基础再读案例，是因为 KDA 与 Humanize 的文档默认你理解 Agent 循环、任务合同与 ncu 指标；跳过基础直接读案例，容易记住命令，却说不出这些设计为什么存在。
 
@@ -173,7 +177,7 @@ Agent 的成本主要来自 token 与 GPU 时间。开始前先设三个上限�
 
 - [ ] 我能解释 Kernel Agent 的「工具闭环」与普通代码生成的区别。
 - [ ] 我能说出推动它出现的三个条件，并解释为什么可验证性既是优点也是风险。
-- [ ] 我知道 KDA、Humanize、TIRx Harness、BBuf skills 各自解决哪一段问题。
+- [ ] 我知道 KDA、Humanize、TIRx Harness、BBuf skills 与 ForgeKernel 各自解决哪一段问题。
 - [ ] 我能按本站路线说出下一章要读什么，以及为什么先读 Agent 而不是直接读 KDA。
 - [ ] 我完成了环境自检，或明确记录了自己要走无 GPU 路径。
 - [ ] 我能说出至少三条 Agent 使用中的安全边界。
@@ -205,6 +209,7 @@ Agent 的成本主要来自 token 与 GPU 时间。开始前先设三个上限�
 - [KDA 官方博客 KDA²: Kernel Design Agents optimize Kimi Delta Attention](https://nvlabs.github.io/kda/blog/2026-09-27-kda-for-kda/)：reward hacking 与验收加固的一手材料。
 - [Humanize: Judgement Engineering for Agentic Coding](https://arxiv.org/abs/2610.08900)：重点读引言与「写/判分离」部分。
 - [BBuf/AI-Infra-Auto-Driven-SKILLS](https://github.com/BBuf/AI-Infra-Auto-Driven-SKILLS)：看 skills 目录如何组织领域知识；第 7 章 [BBuf skills](/guide/bbuf/) 逐层拆解这个仓库。
+- [OpenBMB/ForgeKernel](https://github.com/OpenBMB/ForgeKernel)：看一个自演化 harness 怎么把「参考实现」变成会自己前进的基线；第 8 章 [ForgeKernel](/guide/forgekernel/) 逐层拆解这个仓库。
 - [2026 GPU Kernel Agent 综述](https://qingkeai.online/blog/2026-GPU-Kernel-Agent)：中文长文，适合先建立全景与术语地图。
 - [CUDA C++ Programming Guide](https://docs.nvidia.com/cuda/cuda-c-programming-guide/)：第 3 章的术语底座。
 - [Nsight Compute Documentation](https://docs.nvidia.com/nsight-compute/)：ncu 的命令、指标与权限说明。

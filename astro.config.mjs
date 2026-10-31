@@ -33,7 +33,7 @@ export default defineConfig({
   integrations: [
     starlight({
       title: 'Kernel Agent 学习手册',
-      description: '从零理解并动手实践用 Agent 编写高性能 GPU kernel：KDA、Humanize、Skills 与自建 harness。',
+      description: '从零理解并动手实践用 Agent 编写高性能 GPU kernel：KDA、Humanize、ForgeKernel、Skills 与自建 harness。',
       defaultLocale: 'root',
       locales: {
         root: { label: '简体中文', lang: 'zh-CN' },
@@ -66,6 +66,7 @@ export default defineConfig({
             { label: 'Humanize：判断工程', link: '/guide/humanize/' },
             { label: 'TIRx：编译器作为工具层', link: '/guide/tirx/' },
             { label: 'BBuf skills：经验沉淀', link: '/guide/bbuf/' },
+            { label: 'ForgeKernel：自演化基线', link: '/guide/forgekernel/' },
           ],
         },
         {

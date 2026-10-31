@@ -1,0 +1,280 @@
+---
+title: ForgeKernel：让参考实现自己变成基线
+description: 拆解 OpenBMB 的 ForgeKernel：架构先定的 M0 里程碑、teacher 与 student 的两层循环、三个产物的泄漏边界，以及「被接受的 kernel 封存成下一轮参考」的自演化回路。
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import Exercise from '../../../components/Exercise.astro';
+import ForgeKernelFlow from '../../../components/diagrams/ForgeKernelFlow.astro';
+
+前四章讲的四个项目，都在回答同一个问题的不同侧面：KDA 关心流程怎么排，Humanize 关心判断怎么可靠，TIRx 关心工具层怎么搭，BBuf skills 关心经验怎么沉淀。但它们都共用一个前提：**优化是相对某个固定基线进行的**——那个基线是 FlashAttention、是 cuDNN、是 PyTorch 原生实现，或者是人写的参考 kernel。Agent 的任务是把这个基线跑赢。
+
+ForgeKernel（OpenBMB 开源）把这个前提本身做成了变量。它的做法是：**从一份参考实现出发，让每一轮被接受的 kernel 成为下一轮的参考实现**，于是优化不再停在下限，而是自己往前走。仓库对自身的描述是「self-evolving GPU kernel agent」，论文标题更直接：*Self-Evolving Kernels Catching and Surpassing Experts and Agents*。
+
+这一章拆开它靠什么做到这件事：架构先定的 M0 里程碑、teacher 与 student 的两层循环、三个产物之间的泄漏边界，以及那条把「自己」变成「基线」的回路。最后还要讲一件同样重要的事——JustGoal 论文给出的反证：专用 harness 必须对同模型的 goal-only 基线证明自己。
+
+<Aside type="note" title="核对口径">
+本章事实以 OpenBMB/ForgeKernel 仓库当前公开内容（README、`docs/design/`、`docs/kb-harvest.md`、`kernels/README.md`）与 JustGoal 论文摘要为一手来源，核对于 2026-10-31。论文仍在 OpenReview 评审中（标为 ICLR 2027 under review），仓库处于 0.1.x 早期版本，命令、模型与成绩都可能变化，请以官方为准。
+</Aside>
+
+## 学习目标
+
+读完本章，你应当能够：
+
+- 说出 ForgeKernel 相对前四个案例新在哪一段，以及它和 KDA、Humanize、TIRx、BBuf 的分工；
+- 解释「架构先定」为什么要在第一个里程碑解决，以及 M0 gate 通过后为什么要冻结；
+- 画出 teacher 与 student 两层循环各自优化什么、用什么信号诊断；
+- 说明 milestone、硬件知识库、meta-milestone 三个产物各含什么、为什么只有知识库允许含代码；
+- 复述 reference 的四种模式，以及 source 与 blackbox 模式对 teacher 的差别；
+- 解释自演化回路为什么能在硬件不再有收益时才停，以及「平台期」为什么不是最优性的证明；
+- 说清 ForgeKernel 的 judge 是怎么写的、容差是怎么定的、正确性监控在最后检查什么；
+- 引用 JustGoal 的结论，并判断它对自己正在搭的 harness 意味着什么。
+
+## 它在全景里的位置
+
+先把它和前四个案例并排放，避免把不同性质的资产混在一起。
+
+| 项目 | 它回答的问题 | 它的产物形态 | 参照系 |
+| --- | --- | --- | --- |
+| [KDA](https://github.com/NVlabs/kda) | 一次 kernel 优化任务怎么组织 | 任务合同、draft → plan、候选与基准记录 | 固定基线 |
+| [Humanize](https://arxiv.org/abs/2610.08900) | 怎么保证「真的做完了」 | 写/判分离、机械 gate、证据化评审 | 固定基线 |
+| [TIRx Harness](https://github.com/mlc-ai/tirx-harness) | Agent 能拿到什么工具 | 负载契约、编译期分析、知识库、基准服务 | 固定基线 |
+| [BBuf skills](https://github.com/BBuf/AI-Infra-Auto-Driven-SKILLS) | 经验从哪来，怎么被检索 | 11 个 skill 与 118 份模型 PR 档案 | 固定基线 |
+| **ForgeKernel** | **优化能不能不停在已知最好实现上** | **两层循环、里程碑课程、跨算子知识库、自演化脚本** | **基线会自己往前走** |
+
+差别可以压缩成一句话：前四个项目都在加固「人怎么审 Agent」，ForgeKernel 加的是「Agent 怎么不再需要人提供上限」。当然这不是说它更高级——它对硬件、模型与算时预算的要求都高得多，本章末尾的「常见误区」会讲这些限制。
+
+<ForgeKernelFlow />
+
+## 从一个参考实现开始
+
+ForgeKernel 的每次运行都从一份 **reference**（参考实现）出发。这份 reference 有两个用途：source 模式下 teacher 读它的源码，运行时它被当作目标速度的来源——目标耗时 = 参考耗时 ÷ `ratio`（默认 1.2×）。
+
+reference 的配置方式决定了整个运行的模式，这是 `[reference]` 表的全部含义：
+
+| `[reference]` 怎么写 | 模式 | teacher 能看到什么 |
+| --- | --- | --- |
+| `run` + `source` | source | 参考实现的源码与它的硬件行为 |
+| 只有 `run`，或 `blackbox = true` | blackbox | 只有硬件行为，看不到源码 |
+| 整张表都不写 | generate | 先由 `/goal` 会话写一份参考实现 |
+| 换成 `[leaderboard]` 表 | leaderboard | 榜单的题目、judge 与计时方式 |
+
+blackbox 模式值得单独说。它的意思是：源码存在，但被封起来，teacher 只能跑它、计时它、profile 它，看不到它怎么写。仓库强调，这条边界**不靠 prompt 维持，而由 harness 机械保证**——当参考实现需要和学生 kernel 在同一个 GPU 作业里配对计时时，harness 会把它密封（`eval/closed_ref.py`），学生能触及的任何地方都不出现明文。同时还有一份**推导出来的拒绝清单**：学生不许读参考源码、密封产物与密钥、其他运行目录；用户只能通过 `[reference].deny` 追加，不能删减。
+
+这一条是全站反复出现的主题的又一次出现。[第 4 章 KDA](/guide/kda/) 用隐藏测试与压力探针加固验收，[第 5 章 Humanize](/guide/humanize/) 用跨厂商 reviewer 做写/判分离，ForgeKernel 换了个角度：**不让写代码的人看到答案的原料，比事后检查更省事**。
+
+## 两层循环
+
+ForgeKernel 的运行由两个嵌套的循环组成，这一点和大多数 kernel agent 的「一个循环」不同。
+
+**内层循环（student，编码 Agent）** 一次只实现里程碑里的一行决策。跑完一个 GPU 作业，判定三件事：正确性、与参考实现配对的计时、profile 结果。正确性失败就回滚；性能回退**不回滚**——这是有意的设计，因为内层循环执行的是 teacher 已经验证过的路径，有些决策是给后面让路的脚手架，单独启用时回退是正常的。真正不能容忍的只有正确性。
+
+**外层循环（teacher，架构 Agent）** 在三种情况下重新进场：连续若干轮没有新的最好结果、决策图被走穷、或者卡在 gate 上。它做的事是「给杠杆定价」——用消融实验判断哪些改动值得动——然后跑 verdict probe，最后修订课程表。
+
+两层是同构的，这一点设计文档说得很明确：
+
+| 维度 | 内层 = student 循环 | 外层 = teacher 循环 |
+| --- | --- | --- |
+| 优化对象 | kernel 代码 | 每算子一份的里程碑 |
+| 指标 | 延迟 / MFU（跨 shape 几何平均） | 学生复现参考实现的程度 |
+| 诊断信号 | NCU profile | 整条内层轨迹 |
+| 迭代单位 | 一行决策 Dx.y | 一个里程碑缺陷 |
+
+外层循环读取轨迹的方式也值得学：**默认喂给它的是机械抽取的结构化摘要**（目标/达成/差距、逐轮曲线、逐条决策的前后指标与判定、回归记录、profiler 结论），原始日志、git diff、NCU CSV 只以路径形式给出。理由写在设计文档里：预先用 LLM 摘要，摘要的盲区就会变成诊断的盲区——他们实际遇到过中途得出「是 occupancy 墙，只能重新切 tile」的错误结论，两轮后才纠正为寄存器溢出。机械抽取只重排已有字段，不引入判断。
+
+## 架构先定：为什么是 M0
+
+ForgeKernel 最容易被误解的一点是「架构先定」：最容易写错、而且错了以后最贵的那些决策——kernel 怎么切、tile 形状多大、warp 各干什么、寄存器与共享内存预算怎么分，以及编排层面的什么常驻、发射顺序如何、哪部分工作藏在谁的阴影下——全部放在**第一个里程碑 M0** 里决定。M0 的 gate 一旦通过就冻结；后面的 M1 到 Mk 只在这个结构内部调优，每个里程碑由「正确性 + 性能 + 机制行」三道 gate 关掉。
+
+**如果测量显示某个上限只有换结构才能抬起来，teacher 就回去改 M0，而不是让后面的里程碑绕着它做补丁。**
+
+外层循环的编辑偏好也印证了这一点：早期改地基（M0/M1）最便宜——上面还没堆东西，而且地基设定了全局天花板；晚期地基已经验证过，再动就白白丢掉大量内层工作，所以改为在上层做增量修补。
+
+这和本站第 3 章讲的工程直觉是对得上的：一个 kernel 的性能上限往往在 tiling 与数据流定下来的时候就已经决定了，后面几十轮微调只是在这个上限下面挪动。把这件事写进机制，比写进建议清单有用得多。
+
+## 三个产物与两条不变量
+
+ForgeKernel 把系统的知识切成三份，而**这些边界就是防泄漏的核心**：
+
+| 产物 | 范围 | 含代码吗 | 内容 | 谁来迭代 |
+| --- | --- | --- | --- | --- |
+| 每算子里程碑 | 单个算子 | **不含实现体** | 架构决策、参数与契约（自然语言 + 数字） | 外层循环 |
+| 硬件知识库 `hw_kb/` | 跨算子 | **含示例代码** | 怎么用硬件接口：TMA、mbarrier、WGMMA、swizzle 等 | 很少，几乎只增 |
+| meta-milestone | 跨算子 | 不含 | 把算子蒸馏成里程碑的策略与词汇 | 人 + 少量样本 |
+
+两条不变量是这套设计的地基：
+
+**L0（泄漏边界）**：里程碑给的是「起点 + 决策 + 参数」，**永远不给终点**。「怎么发一条 WGMMA、怎么写 TMA 描述符」是硬件知识，属于跨算子的知识库；「这个算子的 5 个 GEMM 怎么连起来、softmax backward 怎么算」是算法，属于里程碑。`tile_m`、流水线级数、warp 角色切分这类参数可以直接给——它们是决策不是代码。**红线是参考实现那个优化过的 kernel 的实现体**，M0 也不例外。
+
+**L1（teacher 与算子无关）**：teacher 的 harness 代码与提示词里不能出现任何算子特定的信息，所有算子特定的东西只能作为运行时输入进入。设计文档给了机械判定法：提示词里出现任何算子名或算子结构词就是违规。推论很实际：**换算子时 harness 与提示词一行都不用改**；需要改才能跑，就说明 L1 已经破了。
+
+知识库里的条目也不是随便能进的。它必须由一个 GPU 探针认证——但仓库自己指出这道门的局限：**探针是同一个 Agent 写的，只能证明这个机制在 GPU 上跑得起来，不能证明这条经验该进知识库**。人工复核要盯两条轴：一是不能把某个算子的算法伪装成硬件机制混进去（L0，因为知识库是后面每个算子的学生都会读的，污染会一直传下去）；二是只能**指向**来源，不能改写来源——文件名、函数名、行号可以记，被改写的描述另存到 `docs/kb-provenance/`，那是不在 Agent 读集里的目录。仓库还标了盲区：机械 lint 能抓出专有名词的泄漏，但**不带专有名词的转述能绕过 lint，只有人眼能发现**。
+
+## 自演化：把基线换成上一轮自己
+
+到这里为止，ForgeKernel 仍然只是一个「更结构化的 kernel agent」。真正让它不同的是 `scripts/self_evolve.py`。
+
+每一代都是一次普通运行。结束时，如果本轮有一个被确认的最好 kernel，且它比自己的参考实现快出**超过噪声地板**，脚本就写出下一代的任务 `tasks/<op>-g<k>/`：复制同样的 `task.toml`、`description.md`、`shapes.json`，把上一代的最好 kernel 拷进新的 `reference/`，并把目标设成新一代参考实现速度的 `--step` 倍（默认 1.05）。新一代任务是自包含的，可以提交到别处重跑。
+
+**停止条件只有两个**：某一代的收益落在噪声地板内（该代同作业复测比值的离散度，最低 1.5%），或者某一代没能产出被确认的最好 kernel。默认没有代数上限。
+
+论文里，这个回路的效果是：每一个被提升的参考实现**后来都被再次超过**，逐代最多 +9.9%。其中 GDN prefill 最终比 FlashInfer 高出约 +100%，GQA attention forward 比 FlashAttention-4 高出约 +29%。
+
+这里要读出两层意思。机制上：被提升的 kernel 带着自己的源码，于是新一代天然进入 source 模式，teacher 读上一代、**学生读不到**——同一条 L0 边界在自演化中继续成立。判断上：**「平台期」是估计，不是证明**。链条停在噪声地板，只说明循环没找到更多，不代表不存在更好的实现。仓库在 Limitations 里把这句话重复了一遍。
+
+## 公开结果与口径
+
+论文覆盖 Hopper 与 Blackwell 上的 27 个算子：与 22 个专家库 kernel 中的 18 个打平或打胜（对标 FlashAttention-4、cuDNN、DeepGEMM 等），与三个 kernel 生成系统公开的 7 个 kernel 全部打平或打胜，最高 +170.6%，几何平均 +39.4%。仓库把论文里生成的 24 个 CuTe DSL kernel（H100 与 B200 上）连同论文后生成的 1 个 CUDA C++ kernel 全部放进了 `kernels/` 目录。
+
+下面这张表挑的是有代表性的几行，**注意每行的对照物不同**：
+
+| 算子 | GPU | 对照 | 结果 | 出处 |
+| --- | --- | --- | --- | --- |
+| Attention forward, causal, GQA 16:1（gen 0） | H100 | FlashAttention-4 | +0.3% | 论文 Figure 3 |
+| Attention forward, GQA 16:1（gen 1） | H100 | 自己的 gen 0（已密封） | +9.9%（对 FA-4 累计 +10%） | 论文 Table 1 |
+| Attention forward, GQA 16:1（gen 2） | H100 | 自己的 gen 1（已密封） | +4.2%（对 FA-4 累计 +15%） | 论文 Table 1 |
+| Attention forward, GQA 16:1 | H100 | `/goal` agent kernel（已密封） | +5.0%（对 FA-4 累计 +29%） | 论文 Table 1 |
+| MLA paged decode | H100 | K-Search | **+170.6%** | 论文 Figure 4 |
+| GQA paged decode | H100 | K-Search | +24.5% | 论文 Figure 4 |
+| GDN prefill forward | H100 | `/goal` agent kernel（已密封） | +9.5%（对 FlashInfer 累计 **+100%**） | 论文 Table 1 |
+| GDN prefill（varlen） | B200 | **KDA v0.5** | +5.8% | 论文 Figure 4 |
+| DSA sparse attention backward | H100 | cuDNN-frontend | +1.4% | 论文 Figure 3 |
+| FP8 GEMM（128-block scaling） | H100 | DeepGEMM | +0.8% | 论文 Figure 3 |
+| Conv3d forward | H100 | cuDNN | +7.6% | 论文 Figure 3 |
+| DeepSeek-V4.1 fused prefill（Q RoPE + 稀疏 MQA + sink + O RoPE + FP8 cast） | B200 | FlashMLA | 1.104–1.105× | 论文之后 |
+
+这张表有两处必须点明，否则很容易被误读。
+
+**第一，对照物是分层的，不能混着看。** +170.6% 是对 K-Search，不是对 FlashAttention；对专家库的大多数是 +0.3% 到 +7.6% 这种量级。仓库的原始表述是「matches or beats」——**打平也算赢**，这与「超越」是两件事。真正大的数字大多来自论文 Figure 4，也就是与其他 kernel 生成系统比，不是与专家库比。
+
+**第二，GDN prefill varlen 那一行对照的是 KDA v0.5**，也就是本站第 4 章讲的那个项目，+5.8%。这是全站少有的两个案例之间可以直接对读的数字：同一个 B200、同一个 GDN prefill varlen 算子，ForgeKernel 的版本比 KDA v0.5 快 5.8%。但这仍然是两套独立实验，不能像本站第 6 章那样做「不可并列」的加总。
+
+还有一条容易被忽略但很硬的声明：**这些 kernel 全部没有接触过它们所对照的库或系统的源码**。
+
+## 判据：正确性怎么写，容差怎么定
+
+ForgeKernel 没有用独立模型做评审，它的「写/判分离」靠的是**独立产出 + 冻结 + 双向对齐**：
+
+1. **teacher 从 `description.md` 单独写 judge**：一份 PyTorch 参考实现、一个按 shape 生成输入的生成器，并把输入不足 3 组的 shape 补齐到 3 组。补的组必须覆盖不同数据情形——典型分布、合法范围内的极值、算子特有的结构（稀疏、掩码、索引分布）——并写明每组是干什么用的。
+2. **与参考实现对齐**：judge 的输出要和参考实现在**每个 shape 的每个输入组**上比对；不一致就把数字退回给 teacher 修，最多 3 次，之后运行以错误结束。
+3. **冻结**：judge 写进运行目录的 `check/`，学生可读不可写，harness 有防篡改检查。
+4. **容差**：每个输出的容差取参考实现相对 judge 的**最大误差的两倍**，再取一个由输出 dtype 决定的相对下限（bf16 ≈ 7.8e-3、fp16 ≈ 9.8e-4、fp32 ≈ 1.2e-7）。取「两倍最大值」而不是平均值，是因为另一个正确 kernel 换了求和顺序后，误差落在参考误差之上或之下都常见。
+
+最后还有一道**正确性监控**，跑在确认的最好 kernel 上：用新的随机种子和一组压力输入（放大、缩小、尖峰、零块、完全相同的行、整数边界）重跑 judge，检查输出有没有 NaN/inf，以及同样输入跑两次是否一致。**它只记录，不改判**。
+
+这套设计对第 4、5 章是补充视角：KDA 加验收 gate 堵 reward hacking，Humanize 换一个模型来判，ForgeKernel 则**让判据本身由独立会话产出、冻结、并且双向对齐**。三种做法不冲突，可以叠。
+
+## 一条可执行的路线
+
+仓库的设计哲学是「用户写问题，不写流程」，而且**一次运行不能改问题**——命令行不接受任何覆盖问题定义的参数，要改就改任务定义或新建任务。所以入门路径其实很短：
+
+1. **装**。Python 3.11 起，`pip install -e .`，再装 `nvidia-cutlass-dsl`（这样 Agent 读得到它要写的 DSL 源码），`forge --version` 应输出 `forgekernel 0.1.0`。
+2. **说清 GPU 在哪**。复制 `local.env.example` 为 `local.env`：`FK_DELIVERY=local` 用本机 GPU（`FK_GPU` 选卡），`FK_DELIVERY=ssh` 则填 `REMOTE_HOST`（免交互登录的 ssh 别名）与 `REMOTE_WORKDIR`。密钥只放这里或环境变量，不进版本控制。
+3. **先看计划**。`forge new tasks/rmsnorm --dry-run` 只做检查并打印计划，不落盘。
+4. **跑**。`forge new tasks/rmsnorm` 生成 `.artifacts/rmsnorm_<id>/`，`tmux new -s forge 'forge run .artifacts/rmsnorm_<id>'` 起长任务。`forge status` 看进度，`forge run` 同一个目录可以断点续跑。
+5. **收**。`forge run` 在达成目标时退出码为 0，其他停止方式退出码为 2。产物是 `.artifacts/rmsnorm_<id>/report.md` 与 `best/kernel.py`。
+
+官方给的 `tasks/rmsnorm` 是个很好的模板：把 PyTorch 的 RMSNorm（一次调用九个 kernel 启动）融成一个 CuTe DSL kernel，B200 上跑约 1.5 小时停在参考实现的 **5.2×**（设备中位耗时 0.0307 ms）。设计文档里还记了一次完整的真实 Agent 端到端运行：RMSNorm、prefill 8192×4096 + decode 64×4096、bf16、远程 B200、ssh 交付——写 judge、标定容差、NCU 探针、参考基线、9 次 teacher 侦察作业、milestone v1、学生第 0 轮写出融合 kernel、同一块 GPU 上确认 5.24×、正确性监控、出报告，全程 84 分钟。
+
+<Aside type="caution" title="成本与安全">
+一次运行是数小时的 GPU 时间加前沿模型的花费，而且 Agent 在 harness 写出的策略里以**跳过权限审批**的方式运行。仓库自己建议：在为这件事准备的机器上跑。开始前把墙钟、token 与费用三项预算都设上。
+</Aside>
+
+## 一条反证：JustGoal
+
+ForgeKernel 在 2026-10 发布的 JustGoal 论文，是读这个仓库时不能跳过的一篇，因为它对本章的核心前提提出了挑战。
+
+JustGoal 是一个**只给目标**的基线：通用 Agent 只拿到优化目标与约束，不给任何 kernel 专用基础设施、知识库或预定义工作流，让它自己建评价循环。结论有三条：
+
+- 在 B200 上，JustGoal 在 10 个算子中的 8 个上超过开源库，单算子几何平均加速 1.14×–2.34×；
+- 在 9 个有可比公开结果的算子中，有 5 个超过了最快的已公开的专用 Agent kernel；
+- **在同模型、同 scope 的对照下**（都用 Fable 5.1、单 shape），KDA-0.5 的 harness 只达到 JustGoal 的 **0.95×**；单项机制消融也看不出领域知识或预定义工作流带来一致收益。
+
+论文由此给出的判据是：专用机制必须对「同模型、同 scope 的 goal-only 基线」证明出明确收益，并且**每换一个基础模型就要重新评估一次**。
+
+这条结论对本站在两个方向上都有影响。对读者：第 9、10 章教的是怎么搭专用机制，而 JustGoal 说明这些机制得拿出证据。对主线：第 5 章 Humanize 的结论是「Agent 越强，Evaluator 越重要」；JustGoal 补上了另一半——**Agent 越强，Harness 越需要证明自己**。两句话合起来才是完整的位置：既要把判据做严，也要把机制的收益做实。
+
+<Aside type="tip" title="怎么用这条结论">
+不要把 JustGoal 当成「专用 harness 没用」的证据。ForgeKernel 自己的对照对象里就有 `/goal` agent 写的 kernel，而且有两行 Table 1 的参考实现正是 `/goal` agent 的产物——ForgeKernel 是把 goal-only 结果当成基线往上超，不是把它当对手踩。更实用的读法是：拿 JustGoal 当**你自己的 harness 的对照组**，在换模型、换算子、换硬件时都重跑一次对照。
+</Aside>
+
+## 常见误区
+
+| 误区 | 为什么容易发生 | 修正 |
+| --- | --- | --- |
+| 把 +170.6% 读成「比专家库快 170%」 | 表格里对照物混着 FlashAttention、cuDNN、K-Search 与自家上一代 | 每次引用都写清对照物、GPU 与出处（Figure 3/4 还是 Table 1） |
+| 把「matches or beats」读成「全面超越」 | 论文口径是打平或打胜，+0.3% 也算 | 对专家库的领先多在几个百分点量级，几十个百分点来自对 kernel 生成系统的比较 |
+| 以为没有参考实现也能一步到位 | 表格里几乎所有任务都有 reference | README 明说：只给 PyTorch 实现和一个时间数字时，论文的消融在三个算子上全部停滞 |
+| 以为平台期说明「已经最优」 | 停止条件是噪声地板 | 平台期是估计，不是证明；仓库在 Limitations 里重复了这句话 |
+| 以为 milestone 是「参考实现翻译成自然语言」 | 「蒸馏」这个词容易这样理解 | milestone 是通往该算子的**优化路径结构**，不含实现体 |
+| 把知识库当成可以随便进的 wiki | 探针认证看起来足够 | 探针只能证明机制跑得起来；还要过 L0 与「指向而不转述」两条人工轴 |
+| 以为专用 harness 一定赢 | 专用机制听起来总该更好 | JustGoal 的同模型对照结果是 0.95×——先跑 goal-only 基线，再决定要不要加机制 |
+
+## 本章自检
+
+- [ ] 我能说出 ForgeKernel 相对前四个案例新在哪一段，并用一句话概括「自演化」。
+- [ ] 我能解释 reference 的四种模式，以及 source 与 blackbox 对 teacher 的差别。
+- [ ] 我能说清为什么 M0 要冻结、什么时候才允许回去改 M0。
+- [ ] 我能分别说出内层与外层循环优化什么、用什么信号诊断。
+- [ ] 我能复述 L0 与 L1 两条不变量，并各举一个违反它的例子。
+- [ ] 我能复述自演化的两个停止条件，并解释「平台期不是证明」。
+- [ ] 我能指出公开结果表里对照物的分层，并说明为什么 +170.6% 不能读成「比专家库快 170%」。
+- [ ] 我能说出 ForgeKernel 的 judge 是谁写的、容差怎么定、正确性监控在最后查什么。
+- [ ] 我能复述 JustGoal 的三条结论，并说明它对我自己的 harness 意味着什么。
+
+### 练习
+
+<Exercise level="L3" title="把一个算子蒸馏成 M0 骨架" time="90 分钟">
+
+**目标**：练习 ForgeKernel 里最难替代的一步——不写 kernel，只把一个算子的结构性决策组织成一份可交付的里程碑骨架，并守住泄漏边界。这道题练的是「先定结构」这种思考方式，不是性能。
+
+**背景**：ForgeKernel 的 teacher 读参考实现的架构（或只看它的硬件行为），把「哪些决策重要、什么顺序、什么触发什么」写成一份里程碑：给起点、决策与参数，**不给实现体**。M0 负责最容易写错、最难改的那批决策。判定标准是操作等价性：同一硬件、同一测试集上，一个看不见参考实现代码的 Agent 能复现参考实现的正确性与性能。
+
+**任务**：
+
+1. **选算子并写 `description.md`**。挑一个熟悉的小算子（RMSNorm、softmax 或 attention 的一个变体）。只写「算什么」，不写「怎么算」：函数签名，每个输入与输出的 shape、dtype、布局，语义公式与边界约定（掩码、padding、越界怎么处理），以及合法输入范围。judge 将来要由这份文件独立写出，所以任何「显然如此」的省略都会变成 bug。
+2. **写 `shapes.json`**。至少 2 个 shape，每个 shape 至少 3 个输入组，三组覆盖不同数据情形——典型分布、合法范围内的极值、算子特有的结构（稀疏、掩码、索引分布）——并为每组写一句「这组是用来抓什么的」。
+3. **写 M0 骨架**。用结构化条目列出结构性决策，每个写清：决策内容、取值或范围、依据、什么情况下这个决策是错的。至少覆盖：kernel 切分方式、tile 形状、warp 角色划分、寄存器与共享内存预算、什么常驻显存、发射顺序、哪部分工作藏在哪部分之下。
+4. **写泄漏边界自查**。逐条检查 M0：有没有哪一条实际上等于把参考实现的实现体交出去了？把「决策 + 参数」与「实现体」的分界写在纸上，并说明你怎么判断某条描述属于前者。
+5. **写 judge 契约**。约定 judge 由谁在什么时候写、怎么与参考实现双向对齐（重试上限）、容差怎么定（用什么量、乘什么系数、dtype 下限怎么取）、judge 放在哪里、谁能读谁能写，以及结束前的正确性监控要压哪些输入。
+6. **写一句自评**：如果只允许你改 M0 里的一条决策，你改哪条，为什么？
+
+**验收标准**：
+
+- `description.md` 里没有「怎么算」的表述，通篇可以据此独立写出 PyTorch 参考实现；
+- 每个 shape 至少 3 组输入，三组情形不重复，每组都写明用途；
+- M0 至少 7 条结构性决策，覆盖上面清单的全部维度，每条都带依据和失效条件；
+- 泄漏边界自查是逐条判定的，且能举出一条边界模糊的条目并说明取舍；
+- 容差是「某个统计量的倍数 + dtype 下限」这种可判定的形式，不是「误差足够小」；
+- 正确性监控的输入清单具体到「放大、缩小、尖峰、零块、相同行、整数边界」，并写明它只记录不改判；
+- 最后一问指向一条具体的、可被后续测量推翻的决策。
+
+**无 GPU 替代**：本题全程不需要 GPU，也不需要写 kernel，考的是规格设计与结构化思考，用纸笔或纯文本即可完成。若要更进一步，可以拿公开的 PyTorch 算子源码当参考实现，只读不抄，把你写的 M0 交给同学看：对方能否仅凭 M0 写出正确实现？写不出来，说明你的 M0 缺了决策。
+
+<details>
+<summary>提示</summary>
+
+最容易出错的是第 1 步。「显然如此」是 judge 出 bug 的根源：边界约定、mask 的语义、越界索引的处理、累加 dtype 与舍入位置，任何一处没写清，独立写出的 judge 就和参考实现在误差之外，而你会误判成 kernel 写错了。先写 description，再回头看参考实现，往往能发现三四处没写到的隐含约定。
+
+第 3 步的常见毛病是写成「用 attention 算子」这种同义反复，或「高效地做矩阵乘」这种无法判定的目标。好的决策是「矩阵乘的 tile 形状取 128×64，K 方向切 4 段」——有取值、有依据、有失效条件。
+
+第 4 步用 ForgeKernel 自己的判据：给「起点 + 决策 + 参数」，不给「终点」。如果某条描述读起来像「照这个代码写就行」，它就跨界了。参数取值可以直接给——那是决策不是代码；给出一段实现的可读文本，就是越过红线。
+
+第 6 问的答案如果落在「tile 形状」这类局部参数上，说明你还没抓到 M0 的意义：M0 定的是结构，结构错了，参数调得再准也救不回来。
+
+</details>
+
+</Exercise>
+
+## 延伸阅读
+
+- [ForgeKernel 仓库](https://github.com/OpenBMB/ForgeKernel)：README、`docs/design/`、`docs/kb-harvest.md` 与 `kernels/` 是一手材料，核对于 2026-10-31。
+- [kernels 目录](https://github.com/OpenBMB/ForgeKernel/tree/main/kernels)：论文生成的 24 个 CuTe DSL kernel 与 1 个论文后的 CUDA C++ kernel，逐个列出对照物、加速比与环境。
+- [ForgeKernel 论文（OpenReview）](https://openreview.net/pdf?id=EtV3f5BPD4)：*Self-Evolving Kernels Catching and Surpassing Experts and Agents*，ICLR 2027 评审中。
+- [JustGoal 论文（arXiv:2610.36434）](https://arxiv.org/abs/2610.36434)：goal-only 基线与同模型对照，2026-10 发布。
+- [milestone 蒸馏设计说明](https://github.com/OpenBMB/ForgeKernel/blob/main/docs/design/milestone-distillation.md)：L0/L1 不变量、两层循环的同构性、诊断分类（G1–G4 / R1–R2）与前缀复用的完整推导。
+- [V1 上线设计说明](https://github.com/OpenBMB/ForgeKernel/blob/main/docs/design/v1-launch.md)：任务定义、judge 与容差、目标与计时、运行目录，以及「从上线面上拿掉了什么」的那张表。
+- [知识库收割说明](https://github.com/OpenBMB/ForgeKernel/blob/main/docs/kb-harvest.md)：知识库条目怎么进、怎么审，以及 lint 抓不到的那一类盲区。
+- 上一章回顾：[BBuf skills：经验沉淀](/guide/bbuf/)，看经验怎么变成可检索的上下文；下一章 [Skills 与经验沉淀](/guide/skills/)，把本章的里程碑与知识库写成一类可复用资产。
+
+> 来源与版本：本章事实以 OpenBMB/ForgeKernel 仓库当前公开内容（README、`docs/design/v1-launch.md`、`docs/design/milestone-distillation.md`、`docs/kb-harvest.md`、`kernels/README.md`）与 JustGoal 论文摘要为一手来源，核对于 2026-10-31。仓库处于 0.1.x 早期版本，论文仍在评审中，命令、模型、成绩与目录都可能变化，请以官方为准。完整链接见[资料库](/resources/)。

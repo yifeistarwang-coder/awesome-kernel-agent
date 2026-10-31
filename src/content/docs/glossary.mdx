@@ -28,6 +28,9 @@ description: 按主题整理 Kernel Agent 领域的核心术语，包含英文�
 | 复盘 | postmortem | 对一次失败或成功循环的结构化回顾，记录原因、证据与改法。 | [Humanize](/guide/humanize/) |
 | 消融 | ablation | 逐一移除组件以测量其贡献的实验方法，如 RLCR、KernelWiki、profiling skill 的叠加。 | [Humanize](/guide/humanize/) |
 | 验收加固 | acceptance gauntlet | 多层强制验收：隐藏输入、逐元素容差、压力探针、真实 trace，用来堵住 reward hacking。 | [KDA](/guide/kda/) |
+| 里程碑 | milestone | 通往某个算子的优化路径结构：哪些决策重要、什么顺序、什么触发什么；只给决策与参数，不含参考实现的实现体。 | [ForgeKernel](/guide/forgekernel/) |
+| 元里程碑 | meta-milestone | 把算子蒸馏成里程碑的策略本身；跨算子复用，是 teacher 提示词的依据。 | [ForgeKernel](/guide/forgekernel/) |
+| 架构先定 | architecture-first | 把最容易写错、最难改的结构性决策（切分、tile、warp 角色、寄存器与共享内存预算、编排）全部放进第一个里程碑并冻结的课程设计原则。 | [ForgeKernel](/guide/forgekernel/) |
 
 ## GPU 与性能
 
@@ -103,6 +106,16 @@ description: 按主题整理 Kernel Agent 领域的核心术语，包含英文�
 | 对照系统 | K-Search | Humanize 论文在 DSA indexer 消融中并列比较的另一个 LLM kernel 生成系统，同设置下报告 1.37×。 | [Humanize](/guide/humanize/) |
 | Blackwell | NVIDIA Blackwell | NVIDIA 架构代际，B200/B300 属此代，SM 编号为 sm_100 与 sm_103。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
 | CUDA | CUDA | NVIDIA 的并行计算平台与编程模型，本书 kernel 一律指其上的 GPU kernel。 | [GPU kernel 与性能](/guide/gpu-kernel/) |
+| ForgeKernel | ForgeKernel | OpenBMB 开源的自演化 GPU kernel agent：teacher 与 student 两层循环，架构先定的里程碑，每轮被接受的 kernel 成为下一轮参考实现。 | [ForgeKernel](/guide/forgekernel/) |
+| 参考实现 | reference | 一次运行的参照物：既是目标速度的来源（目标耗时 = 参考耗时 ÷ ratio），也是里程碑蒸馏的对象。 | [ForgeKernel](/guide/forgekernel/) |
+| 黑盒模式 | blackbox mode | 参考实现的源码存在但被密封，teacher 只能运行、计时与 profile，看不到实现；这是受控对照的手段。 | [ForgeKernel](/guide/forgekernel/) |
+| 硬件知识库 | hw_kb | 跨算子复用的硬件机制配方（TMA、mbarrier、swizzle 等），按 GPU 架构分目录；系统里唯一允许含示例代码的产物。 | [ForgeKernel](/guide/forgekernel/) |
+| 泄漏边界 | L0 | 里程碑只给起点、决策与参数，绝不给参考实现那个优化过的 kernel 的实现体。 | [ForgeKernel](/guide/forgekernel/) |
+| 算子无关性 | L1 | teacher 的 harness 与提示词不得含任何算子特定信息；换算子时一行都不用改，需要改才算破了这条。 | [ForgeKernel](/guide/forgekernel/) |
+| 操作等价性 | operational equivalence | 看不见参考实现代码的 Agent，能在同一硬件与同一测试集上复现参考实现的正确性与性能。 | [ForgeKernel](/guide/forgekernel/) |
+| 自演化 | self-evolution | 把被接受的 kernel 提升为下一轮参考实现的机制，让优化不停在已知最好实现上。 | [ForgeKernel](/guide/forgekernel/) |
+| 噪声地板 | noise floor | 同作业复测比值的离散度，最低 1.5%；收益落在其中即视为平台期，自演化链条在此停止。 | [ForgeKernel](/guide/forgekernel/) |
+| JustGoal | JustGoal | 只给优化目标与约束、不给任何 kernel 专用机制的基线；要求专用 harness 对同模型、同 scope 的对照证明收益。 | [ForgeKernel](/guide/forgekernel/) |
 
 ## 评测、运维与风险
 
@@ -123,4 +136,4 @@ description: 按主题整理 Kernel Agent 领域的核心术语，包含英文�
 
 遇到不熟悉的缩写时，先在本页定位它属于“流程”“性能”还是“评测”，再点进对应章节看上下文。写报告或做分享时，建议同时写出术语的英文与适用条件，例如“在 B200、FP8、固定 shape 下报告 1.7×”，避免把一个条件下的数字推广成普遍结论。
 
-> 来源与版本：术语解释以本站各章与所列官方材料为基线，最后核对 2026-10-29，v1.1 校订核对于 2026-10-30。上游项目仍在快速演进，具体能力与数字以官方为准。完整链接见[资料库](/resources/)。
+> 来源与版本：术语解释以本站各章与所列官方材料为基线，最后核对 2026-10-29，v1.1 校订核对于 2026-10-30，v1.5 新增的 ForgeKernel 相关条目核对于 2026-10-31。上游项目仍在快速演进，具体能力与数字以官方为准。完整链接见[资料库](/resources/)。

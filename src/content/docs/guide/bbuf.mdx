@@ -24,7 +24,7 @@ import BbufSkills from '../../../components/diagrams/BbufSkills.astro';
 
 ## 它解决的是哪一段问题
 
-先把它放回全景里。四个公开项目回答的是四个不同的问题，不是同一问题的四个版本：
+先把它放回全景里。五个公开项目回答的是五个不同的问题，不是同一问题的五个版本：
 
 | 项目 | 它回答的问题 | 它的产物形态 |
 | --- | --- | --- |
@@ -32,6 +32,7 @@ import BbufSkills from '../../../components/diagrams/BbufSkills.astro';
 | [Humanize](https://arxiv.org/abs/2610.08900) | 怎么保证「真的做完了」 | 写/判分离、机械 gate、证据化评审 |
 | [TIRx Harness](https://github.com/mlc-ai/tirx-harness) | Agent 能拿到什么工具 | 负载契约、编译期分析、知识库、基准服务 |
 | BBuf skills | 经验从哪来，怎么被检索 | 11 个 skill 与 118 份模型 PR 档案 |
+| [ForgeKernel](https://github.com/OpenBMB/ForgeKernel) | 优化上限怎么自己往前走 | 里程碑课程、跨算子硬件知识库、自演化脚本 |
 
 BBuf 仓库对自身的描述是「Agent-ready skills for LLM serving benchmarks, profiler triage, capacity planning」——注意三个词都是 Infra 侧的场景，而不是 kernel 优化本身。它的出发点是 serving 工程师每天在做的事：压测一个模型、看 profiler、算显存预算、评审上游 PR、排查线上事故。这些事情里的判断力最难写成文档，却最能写成 skill：它们是「看到什么信号 → 做什么动作 → 怎么确认」的固定套路。
 
@@ -137,7 +138,7 @@ Skill 回答「遇到什么信号时按什么步骤做」，档案回答「上�
 
 ## 与 KDA 两个 skill 的分工
 
-第 8 章会讲 skill 应该怎么写，这里先做一次横向对照，免得把不同性质的资产混在一起。
+第 9 章会讲 skill 应该怎么写，这里先做一次横向对照，免得把不同性质的资产混在一起。
 
 | | KernelWiki | ncu-report | BBuf skills |
 | --- | --- | --- | --- |
@@ -159,11 +160,11 @@ Skill 回答「遇到什么信号时按什么步骤做」，档案回答「上�
 | 把脚本输出当成结论 | 脚本给的是候选证据 | 脚本负责找材料，判断仍要写清依据与回退路径 |
 | 复制过来就不维护 | 仓库会变，链接会腐烂 | 设 owner、复核日期与失效标记，过期条目标记而不是照抄 |
 
-这几条与第 8 章要讲的通用原则一致，但在这里更具体：**经验库的价值等于「结论 × 时效」，时效为零时，它就是负资产。**
+这几条与第 9 章要讲的通用原则一致，但在这里更具体：**经验库的价值等于「结论 × 时效」，时效为零时，它就是负资产。**
 
 ## 本章自检
 
-- [ ] 我能说出 BBuf skills 在四个项目分工里占哪一段，与 KDA、Humanize、TIRx 的差别。
+- [ ] 我能说出 BBuf skills 在五个项目分工里占哪一段，与 KDA、Humanize、TIRx 的差别。
 - [ ] 我能列出 11 个 skill 覆盖的三个方向，并各举一个例子。
 - [ ] 我能解释 `llm-serving-auto-benchmark` 为什么要输出产物路径，以及 `llm-torch-profiler-analysis` 为什么强调「先解释再优化」。
 - [ ] 我能复述 prefill/decode 分开看、kernel 与 Python 映射、fusion 成立条件、上游 PR 检索这四类上下文。
@@ -219,6 +220,6 @@ Skill 回答「遇到什么信号时按什么步骤做」，档案回答「上�
 - [model-pr-optimization-history](https://github.com/BBuf/AI-Infra-Auto-Driven-SKILLS/tree/main/model-pr-optimization-history)：118 份 PR 档案与检索脚本。
 - [KDA 仓库](https://github.com/NVlabs/kda)：任务合同、KernelWiki 与 ncu-report 的一手实现，可与本章的 skill 形态对照。
 - [KernelWiki](https://github.com/mit-han-lab/KernelWiki)：按架构、技术与症状组织的领域知识库。
-- 上一章回顾：[TIRx：编译器作为 Agent 的工具层](/guide/tirx/)，看工具层如何稳定产出证据；下一章 [Skills 与经验沉淀](/guide/skills/)，看这一章的样本如何变成可复用的写法。
+- 上一章回顾：[TIRx：编译器作为 Agent 的工具层](/guide/tirx/)，看工具层如何稳定产出证据；下一章 [ForgeKernel：自演化基线](/guide/forgekernel/)，看经验如何变成一份能驱动另一轮优化的里程碑。
 
 > 来源与版本：本章事实以 BBuf AI-Infra-Auto-Driven-SKILLS 仓库当前公开内容为一手来源（skill 目录、model-pr-optimization-history 与 scripts/query.py），核对于 2026-10-30。仓库条目、脚本参数与档案数量都可能变化，请以官方为准。完整链接见[资料库](/resources/)。

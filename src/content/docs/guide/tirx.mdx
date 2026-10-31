@@ -66,7 +66,7 @@ TIRx-lite 是建在 TIRx 中间表示之上的 DSL，负责 kernel 创作。它�
 
 换成 KDA 的语言，这就是 KernelWiki 加上候选记录的组合。差别在「可检索」和「具体」两点：知识库不是一份越写越长的笔记，而是有入口、有结构、能被 Agent 在冷启动时直接命中的东西。
 
-Harness 还内置了三个 skill：`tirx-wiki`（查知识库）、`tirx-debug-kernel`、`tirx-profile-kernel`——正好对应「查资料 → 调试 → 性能分析」这条链路。第 8 章 [Skills 与经验沉淀](/guide/skills/) 会专门讲怎么把经验组织到能被调用的粒度。
+Harness 还内置了三个 skill：`tirx-wiki`（查知识库）、`tirx-debug-kernel`、`tirx-profile-kernel`——正好对应「查资料 → 调试 → 性能分析」这条链路。第 9 章 [Skills 与经验沉淀](/guide/skills/) 会专门讲怎么把经验组织到能被调用的粒度。
 
 ### KCoral：基准服务与远程执行是同一件事
 
@@ -84,7 +84,7 @@ Harness 还内置了三个 skill：`tirx-wiki`（查知识库）、`tirx-debug-k
 
 一句话：KDA 与 Humanize 主要在「流程与判断」这一层做文章，TIRx 主要在「工具层」这一层做文章。
 
-但有一个细节值得注意，它说明这三者不是竞品而是**可叠加**：MLC 公开的那些运行，用的正是 **Humanize 2 的 flame chase 流程**，harness 文档也把 Claude Code、Codex 与 Humanize 列为三种可选的 agent 前端。换句话说，工具层选 TIRx、编排层用 Humanize，是官方都在跑的组合方式。第 9 章 [自建 harness](/guide/beyond/) 会讲怎么把这些零件装成一台自己能运转的机器。
+但有一个细节值得注意，它说明这三者不是竞品而是**可叠加**：MLC 公开的那些运行，用的正是 **Humanize 2 的 flame chase 流程**，harness 文档也把 Claude Code、Codex 与 Humanize 列为三种可选的 agent 前端。换句话说，工具层选 TIRx、编排层用 Humanize，是官方都在跑的组合方式。第 10 章 [自建 harness](/guide/beyond/) 会讲怎么把这些零件装成一台自己能运转的机器。
 
 ## 公开结果怎么读
 
@@ -181,6 +181,6 @@ Harness 目前是 0.1.x 的早期原型（PyPI 上的 `tirx-harness` 为 0.1.2.p
 - [kcoral](https://kcoral.mlc.ai/)：持有 GPU 的远程执行与基准服务。
 - [KDA² 官方博客](https://nvlabs.github.io/kda/blog/2026-09-27-kda-for-kda/)：KDA 团队评测里 TIRx 方案的 2.96×，以及验收加固的完整过程（2026-09-27）。
 
-下一章换一个角度：工具能告诉 Agent「这段代码有竞争」，却告诉不了它「这个 fusion 在 FP8 下到底成不成立」。那部分答案在人的经验里，要写成可检索的 skill：[Skills 与经验沉淀](/guide/skills/)。
+下一章换一个角度：工具能告诉 Agent「这段代码有竞争」，却告诉不了它「这个 fusion 在 FP8 下到底成不成立」。那部分答案在人的经验里，要写成可检索的 skill：[BBuf skills：经验沉淀](/guide/bbuf/)。
 
 本章链接与数据核对至 2026-10-30；完整来源清单见[资料库](/resources/)。

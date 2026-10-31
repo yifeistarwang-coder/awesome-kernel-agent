@@ -33,6 +33,11 @@ description: 按官方项目、论文解读、工具链与社区博客分类整�
 | FlashInfer | 面向 LLM 推理的高性能 kernel 库，也是竞赛与基准的重要基础。 | [打开](https://github.com/flashinfer-ai/flashinfer) | 核对于 2026-10-29 |
 | HOA | Humanfia 的竞赛 Agent 项目，覆盖奥赛、PutnamBench 与 Lean 4 证明检查。 | [打开](https://github.com/humanfia/hoa) | 核对于 2026-10-29 |
 | Loom | Humanize 论文中的搜索型工作负载案例，180 秒预算下 2.34× 吞吐结果的出处。 | [打开](https://github.com/PolyArch/loom) | 核对于 2026-10-29 |
+| ForgeKernel 仓库 | OpenBMB 开源的自演化 GPU kernel agent：teacher 与 student 两层循环、架构先定的里程碑、跨算子硬件知识库与自演化脚本；第 8 章逐层拆解这个仓库。 | [打开](https://github.com/OpenBMB/ForgeKernel) | 核对于 2026-10-31 |
+| ForgeKernel kernels 目录 | 论文生成的 24 个 CuTe DSL kernel（H100 与 B200）与 1 个论文后的 CUDA C++ kernel，逐个列出对照物、加速比与环境。 | [打开](https://github.com/OpenBMB/ForgeKernel/tree/main/kernels) | 核对于 2026-10-31 |
+| ForgeKernel 设计文档 | V1 上线设计说明（任务定义、judge 与容差、目标与计时、运行目录）与里程碑蒸馏设计说明（L0/L1 不变量、两层循环、诊断分类）。 | [打开](https://github.com/OpenBMB/ForgeKernel/tree/main/docs/design) | 核对于 2026-10-31 |
+| ForgeKernel 知识库说明 | 知识库条目怎么进、怎么审，以及机械 lint 抓不到的那一类盲区。 | [打开](https://github.com/OpenBMB/ForgeKernel/blob/main/docs/kb-harvest.md) | 核对于 2026-10-31 |
+| SOL-ExecBench | NVIDIA 的 kernel 执行基准，ForgeKernel 提供了它的排行榜任务模式并在其 FlashInfer-Bench 榜单取得第一。 | [打开](https://research.nvidia.com/benchmarks/sol-execbench) | 核对于 2026-10-31 |
 
 ## 论文与解读
 
@@ -44,6 +49,8 @@ description: 按官方项目、论文解读、工具链与社区博客分类整�
 | 2026 GPU Kernel Agent 综述 | 2026-10-08 发布的长文，梳理 GPU Kernel Agent 的方法、基准与验证，适合建立全景与术语地图。 | [打开](https://qingkeai.online/blog/2026-GPU-Kernel-Agent) | 核对于 2026-10-29 |
 | TIRx harness 博客 | 介绍开源编译器 harness 如何服务 Agent 编程，含任务与工具设计与公开结果。 | [打开](https://blog.mlc.ai/2026/09/29/tirx-harness-an-open-compiler-harness-for-agentic-gpu-programming) | 核对于 2026-10-29 |
 | Humanize 中文解读 | B 站视频，适合先听一遍直觉，再回论文核对细节。 | [打开](https://m.bilibili.com/video/BV17YJX6FEsK/) | 核对于 2026-10-29 |
+| ForgeKernel 论文 | *Self-Evolving Kernels Catching and Surpassing Experts and Agents*：自演化、架构先定课程与跨算子知识库的设计，ICLR 2027 评审中。 | [打开](https://openreview.net/pdf?id=EtV3f5BPD4) | 核对于 2026-10-31 |
+| JustGoal 论文 | 只给目标、不给 kernel 专用机制的基线；给出同模型、同 scope 的对照，并要求专用机制证明自身收益。 | [打开](https://arxiv.org/abs/2610.36434) | 核对于 2026-10-31 |
 
 ## 工具链与文档
 
@@ -60,6 +67,7 @@ description: 按官方项目、论文解读、工具链与社区博客分类整�
 | Modern GPU Programming for MLSys | TIRx 配套公开课程，系统讲 GPU 执行模型与用 TIRx 写面向 ML 系统的 kernel。 | [打开](https://mlc.ai/modern-gpu-programming-for-mlsys/) | 核对于 2026-10-30 |
 | kcoral | TIRx Harness 的基准服务与远程执行通道：持有 GPU、集中调度请求，并返回测量结果与产物。 | [打开](https://kcoral.mlc.ai/) | 核对于 2026-10-30 |
 | TIRx 编译器栈发布说明 | 2026-06-22 Apache TVM 社区发布 TIRx 的官方说明：硬件原生与编译器可见的取舍，以及与 Triton、TileLang 的位置关系。 | [打开](https://tvm.apache.org/2026/06/22/tirx) | 核对于 2026-10-30 |
+| CANN-Bench 榜单 | 华为 CANN-Bench 的官方榜单，ForgeKernel 在 Ascend A3 与 Ascend 950DT 上取得第一。 | [打开](https://cannbench.com/leaderboard) | 核对于 2026-10-31 |
 
 ## 社区与博客
 
@@ -76,4 +84,4 @@ description: 按官方项目、论文解读、工具链与社区博客分类整�
 
 如果发现链接失效、版本更新或数字与官方不符，请以官方页面为准，并在本站的更新日志中记录修正。资料库会随版本迭代增删条目，不追求“大而全”，只保留对学习路径有直接帮助的来源。
 
-> 免责声明：本页链接均指向第三方项目与文章，版权与解释权归原作者所有；本站与 NVIDIA、MIT、Humanize、BBuf、MLC 等团队无隶属关系。资料内容可能随时更新，引用前请自行核对。各条目的核对日期以表格为准，新增条目核对于 2026-10-30。
+> 免责声明：本页链接均指向第三方项目与文章，版权与解释权归原作者所有；本站与 NVIDIA、MIT、Humanize、BBuf、MLC、OpenBMB 等团队无隶属关系。资料内容可能随时更新，引用前请自行核对。各条目的核对日期以表格为准，新增条目核对于 2026-10-31。
