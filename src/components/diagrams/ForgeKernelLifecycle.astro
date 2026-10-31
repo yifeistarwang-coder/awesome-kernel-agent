@@ -1,0 +1,215 @@
+---
+import Figure from '../Figure.astro';
+---
+
+<Figure caption="ForgeKernel 一次 run 的七段生命周期：forge new 快照问题，teacher 先写 judge，生成 card 并密封参考，随后在 GPU 上校准 judge、冻结容差、探测 NCU，再侦察并蒸馏里程碑，进入两层循环，最后复测确认、跑正确性监控并出报告。右侧是每段的主要失败路径；底部虚线是 self_evolve.py 把 best kernel 写成下一代 reference 的回路。">
+	<div class="ka-diagram ka-fklife">
+		<svg
+			viewBox="0 0 960 680"
+			role="img"
+			aria-labelledby="ka-fklife-title ka-fklife-desc"
+			xmlns="http://www.w3.org/2000/svg"
+		>
+			<title id="ka-fklife-title">ForgeKernel 一次 run 的七段生命周期</title>
+			<desc id="ka-fklife-desc">
+				第 1 段 forge new 校验任务并把问题快照进运行目录；第 2 段 teacher 写 definition.json、judge.py 与 groups.json 并通过静态检查；第 3 段生成 operator card、密封参考并写入 problem.json；第 4 段在 GPU 上把 judge 与参考逐 shape、逐输入组对齐，冻结容差，探测 NCU 并克隆学生工作区；第 5 段侦察参考并蒸馏 milestone v1；第 6 段运行两层循环，内外层交替修补；第 7 段做三次复测确认、正确性监控、知识库收割并写报告，退出码为 0 或 2。右侧列出各段的失败路径：judge 不一致时重写，card 生成失败时拒绝开跑，容差仍不一致时弃树重写 judge，NCU 不可用时降级为只计时，没有参考时先用 /goal 生成，里程碑不合规时拒绝开跑，补丁无收益时回滚并记录死路，监控报警时不算达标。底部是自演化脚本把 best kernel 写成下一代参考实现的回路。
+			</desc>
+
+			<defs>
+				<pattern id="ka-fklife-grid" width="28" height="28" patternUnits="userSpaceOnUse">
+					<path d="M28 0H0V28" fill="none" stroke="var(--ka-dg-grid)" stroke-width="1"></path>
+				</pattern>
+				<marker
+					id="ka-fklife-arrow"
+					viewBox="0 0 8 8"
+					refX="6.6"
+					refY="4"
+					markerWidth="7"
+					markerHeight="7"
+					orient="auto-start-reverse"
+				>
+					<path d="M0 0 8 4 0 8Z" fill="var(--ka-dg-line-strong)"></path>
+				</marker>
+				<marker
+					id="ka-fklife-arrow-teal"
+					viewBox="0 0 8 8"
+					refX="6.6"
+					refY="4"
+					markerWidth="7"
+					markerHeight="7"
+					orient="auto-start-reverse"
+				>
+					<path d="M0 0 8 4 0 8Z" fill="var(--ka-dg-teal)"></path>
+				</marker>
+				<marker
+					id="ka-fklife-arrow-amber"
+					viewBox="0 0 8 8"
+					refX="6.6"
+					refY="4"
+					markerWidth="7"
+					markerHeight="7"
+					orient="auto-start-reverse"
+				>
+					<path d="M0 0 8 4 0 8Z" fill="var(--ka-dg-amber)"></path>
+				</marker>
+			</defs>
+
+			<rect width="960" height="680" fill="url(#ka-fklife-grid)" opacity="0.6"></rect>
+
+			<text x="28" y="30" class="dg-mono dg-muted" font-size="12.5">
+				FORGEKERNEL · 一次 run 的七段生命周期
+			</text>
+			<text x="932" y="30" text-anchor="end" class="dg-mono dg-teal" font-size="12.5">
+				PROBLEM → JUDGE → LOOP → REPORT
+			</text>
+
+			<text x="28" y="56" class="dg-muted" font-size="12.5">
+				问题在 git，run 在 .artifacts；一次 run 只读自己的快照，不继承上一次运行
+			</text>
+
+			<!-- 轨道 -->
+			<g aria-hidden="true">
+				<path d="M46 90V590" fill="none" stroke="var(--ka-dg-line-strong)" stroke-width="1"></path>
+				<path d="M46 116H74M46 190H74M46 264H74M46 338H74M46 412H74M46 486H74M46 560H74" fill="none" stroke="var(--ka-dg-line)" stroke-width="1"></path>
+			</g>
+
+			<!-- 01 new -->
+			<g>
+				<rect x="84" y="86" width="560" height="60" rx="11" class="dg-surface dg-line"></rect>
+				<circle cx="46" cy="116" r="13" fill="var(--ka-dg-bg)" stroke="var(--ka-dg-line-strong)" stroke-width="1"></circle>
+				<text x="46" y="120" text-anchor="middle" class="dg-mono dg-muted" font-size="10.5">01</text>
+				<text x="100" y="102" class="dg-mono dg-muted" font-size="10.5">NEW / 快照问题</text>
+				<text x="100" y="122" class="dg-title dg-text" font-size="16">forge new</text>
+				<text x="100" y="139" class="dg-muted" font-size="12">校验任务、快照问题、打印计划；--dry-run 只检查</text>
+				<text x="628" y="112" text-anchor="end" class="dg-mono dg-faint" fill="var(--ka-dg-muted)" font-size="11">run.json · task/</text>
+			</g>
+
+			<!-- 02 judge -->
+			<g>
+				<rect x="84" y="160" width="560" height="60" rx="11" class="dg-surface dg-line"></rect>
+				<circle cx="46" cy="190" r="13" fill="var(--ka-dg-bg)" stroke="var(--ka-dg-line-strong)" stroke-width="1"></circle>
+				<text x="46" y="194" text-anchor="middle" class="dg-mono dg-muted" font-size="10.5">02</text>
+				<text x="100" y="176" class="dg-mono dg-muted" font-size="10.5">JUDGE / 独立判据</text>
+				<text x="100" y="196" class="dg-title dg-text" font-size="16">teacher 写 judge</text>
+				<text x="100" y="213" class="dg-muted" font-size="12">definition.json · judge.py · groups.json；三次静态检查</text>
+				<text x="628" y="186" text-anchor="end" class="dg-mono dg-faint" fill="var(--ka-dg-muted)" font-size="11">check/</text>
+			</g>
+
+			<!-- 03 card -->
+			<g>
+				<rect x="84" y="234" width="560" height="60" rx="11" class="dg-surface dg-line"></rect>
+				<circle cx="46" cy="264" r="13" fill="var(--ka-dg-bg)" stroke="var(--ka-dg-line-strong)" stroke-width="1"></circle>
+				<text x="46" y="268" text-anchor="middle" class="dg-mono dg-muted" font-size="10.5">03</text>
+				<text x="100" y="250" class="dg-mono dg-muted" font-size="10.5">CARD / 生成工作树</text>
+				<text x="100" y="270" class="dg-title dg-text" font-size="16">生成 card 与参考树</text>
+				<text x="100" y="287" class="dg-muted" font-size="12">scaffold · eval/ · gpu_entry；密封参考、写入 problem.json</text>
+				<text x="628" y="260" text-anchor="end" class="dg-mono dg-faint" fill="var(--ka-dg-muted)" font-size="11">operators/</text>
+			</g>
+
+			<!-- 04 calibrate -->
+			<g>
+				<rect x="84" y="308" width="560" height="60" rx="11" class="dg-surface-2 dg-line-strong"></rect>
+				<circle cx="46" cy="338" r="13" fill="var(--ka-dg-bg)" stroke="var(--ka-dg-amber)" stroke-width="1.2"></circle>
+				<text x="46" y="342" text-anchor="middle" class="dg-mono dg-amber" font-size="10.5">04</text>
+				<text x="100" y="324" class="dg-mono dg-amber" font-size="10.5">CALIBRATE / 冻结容差</text>
+				<text x="100" y="344" class="dg-title dg-text" font-size="16">校准并准备开跑</text>
+				<text x="100" y="361" class="dg-muted" font-size="12">对齐 judge 与参考；冻结容差；探测 NCU、克隆 ws</text>
+				<text x="628" y="334" text-anchor="end" class="dg-mono dg-faint" fill="var(--ka-dg-muted)" font-size="11">frozen</text>
+			</g>
+
+			<!-- 05 distill -->
+			<g>
+				<rect x="84" y="382" width="560" height="60" rx="11" class="dg-surface dg-line"></rect>
+				<circle cx="46" cy="412" r="13" fill="var(--ka-dg-bg)" stroke="var(--ka-dg-line-strong)" stroke-width="1"></circle>
+				<text x="46" y="416" text-anchor="middle" class="dg-mono dg-muted" font-size="10.5">05</text>
+				<text x="100" y="398" class="dg-mono dg-muted" font-size="10.5">DISTILL / 架构先定</text>
+				<text x="100" y="418" class="dg-title dg-text" font-size="16">侦察与蒸馏 v1</text>
+				<text x="100" y="435" class="dg-muted" font-size="12">teacher 读参考或只看硬件行为，写出 M0 课程；不合规就重写</text>
+				<text x="628" y="408" text-anchor="end" class="dg-mono dg-faint" fill="var(--ka-dg-muted)" font-size="11">milestone.md</text>
+			</g>
+
+			<!-- 06 loop -->
+			<g>
+				<rect x="84" y="456" width="560" height="60" rx="11" class="dg-surface-2 dg-line-strong"></rect>
+				<circle cx="46" cy="486" r="13" fill="var(--ka-dg-bg)" stroke="var(--ka-dg-teal)" stroke-width="1.2"></circle>
+				<text x="46" y="490" text-anchor="middle" class="dg-mono dg-teal" font-size="10.5">06</text>
+				<text x="100" y="472" class="dg-mono dg-teal" font-size="10.5">LOOP / 两层循环</text>
+				<text x="100" y="492" class="dg-title dg-text" font-size="16">内层实现，外层诊断</text>
+				<text x="100" y="509" class="dg-muted" font-size="12">一次一行决策；一个缺陷一步；gate 决定保留或回滚，平台期交给外层</text>
+				<text x="628" y="482" text-anchor="end" class="dg-mono dg-faint" fill="var(--ka-dg-muted)" font-size="11">status.jsonl · meta_status.jsonl</text>
+			</g>
+
+			<!-- 07 finish -->
+			<g>
+				<rect x="84" y="530" width="560" height="60" rx="11" class="dg-surface dg-line"></rect>
+				<circle cx="46" cy="560" r="13" fill="var(--ka-dg-bg)" stroke="var(--ka-dg-amber)" stroke-width="1.2"></circle>
+				<text x="46" y="564" text-anchor="middle" class="dg-mono dg-amber" font-size="10.5">07</text>
+				<text x="100" y="546" class="dg-mono dg-amber" font-size="10.5">FINISH / 确认与交付</text>
+				<text x="100" y="566" class="dg-title dg-text" font-size="16">复测、监控、收割</text>
+				<text x="100" y="583" class="dg-muted" font-size="12">3 次确认 · 正确性监控 · 知识库收割 · report.md；exit 0/2</text>
+				<text x="628" y="556" text-anchor="end" class="dg-mono dg-faint" fill="var(--ka-dg-muted)" font-size="11">best/kernel.py</text>
+			</g>
+
+			<!-- 阶段间箭头 -->
+			<g aria-hidden="true" fill="none" stroke="var(--ka-dg-line-strong)" stroke-width="1.3">
+				<path d="M46 129V156" marker-end="url(#ka-fklife-arrow)"></path>
+				<path d="M46 203V230" marker-end="url(#ka-fklife-arrow)"></path>
+				<path d="M46 277V304" marker-end="url(#ka-fklife-arrow)"></path>
+				<path d="M46 351V378" marker-end="url(#ka-fklife-arrow)"></path>
+				<path d="M46 425V452" marker-end="url(#ka-fklife-arrow)"></path>
+				<path d="M46 499V526" marker-end="url(#ka-fklife-arrow)"></path>
+			</g>
+
+			<!-- 右侧失败路径 -->
+			<text x="672" y="86" class="dg-mono dg-amber" font-size="10.5">FAILURE PATHS / 每段都有出口</text>
+
+			<g>
+				<rect x="672" y="160" width="260" height="60" rx="9" class="dg-surface dg-line"></rect>
+				<text x="686" y="182" class="dg-text" font-size="12">judge 与参考不一致</text>
+				<text x="686" y="202" class="dg-muted" font-size="11.5">带数字重写；3 次失败后结束</text>
+			</g>
+			<g>
+				<rect x="672" y="234" width="260" height="60" rx="9" class="dg-surface dg-line"></rect>
+				<text x="686" y="256" class="dg-text" font-size="12">card 生成失败</text>
+				<text x="686" y="276" class="dg-muted" font-size="11.5">拒绝开跑；修正任务或参考</text>
+			</g>
+			<g>
+				<rect x="672" y="308" width="260" height="60" rx="9" class="dg-surface dg-line"></rect>
+				<text x="686" y="330" class="dg-text" font-size="12">容差仍对不上</text>
+				<text x="686" y="350" class="dg-muted" font-size="11.5">弃树重写 judge；无 NCU 则降级</text>
+			</g>
+			<g>
+				<rect x="672" y="382" width="260" height="60" rx="9" class="dg-surface dg-line"></rect>
+				<text x="686" y="404" class="dg-text" font-size="12">没有参考实现</text>
+				<text x="686" y="424" class="dg-muted" font-size="11.5">/goal 先生成；v1 不合规不跑</text>
+			</g>
+			<g>
+				<rect x="672" y="456" width="260" height="60" rx="9" class="dg-surface dg-line"></rect>
+				<text x="686" y="478" class="dg-text" font-size="12">补丁没有收益</text>
+				<text x="686" y="498" class="dg-muted" font-size="11.5">回滚；记入死路表，下次不再提</text>
+			</g>
+			<g>
+				<rect x="672" y="530" width="260" height="60" rx="9" class="dg-surface dg-line"></rect>
+				<text x="686" y="552" class="dg-text" font-size="12">监控报警</text>
+				<text x="686" y="572" class="dg-muted" font-size="11.5">不算达标；exit 2</text>
+			</g>
+
+			<!-- 自演化回路 -->
+			<g>
+				<rect x="28" y="612" width="904" height="44" rx="11" class="dg-surface-2 dg-line-strong"></rect>
+				<text x="46" y="639" class="dg-mono dg-teal" font-size="11.5">SELF-EVOLUTION</text>
+				<text x="172" y="639" class="dg-muted" font-size="12.5">
+					self_evolve.py 把 best kernel 写成 tasks/&lt;op&gt;-g&lt;k&gt;/ 的 reference，再从 01 开始下一代；收益落在噪声地板内即停
+				</text>
+			</g>
+			<path
+				d="M644 590V600H932V608"
+				fill="none"
+				stroke="var(--ka-dg-teal)"
+				stroke-width="1.2"
+				stroke-dasharray="4 4"
+				marker-end="url(#ka-fklife-arrow-teal)"
+			></path>
+		</svg>
+	</div>
+</Figure>

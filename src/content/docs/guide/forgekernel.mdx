@@ -13,6 +13,8 @@ ForgeKernel（OpenBMB 开源）把这个前提本身做成了变量。它的做�
 
 这一章拆开它靠什么做到这件事：架构先定的 M0 里程碑、teacher 与 student 的两层循环、三个产物之间的泄漏边界，以及那条把「自己」变成「基线」的回路。最后还要讲一件同样重要的事——JustGoal 论文给出的反证：专用 harness 必须对同模型的 goal-only 基线证明自己。
 
+概念之外，代码层面的完整解剖在配套页 [ForgeKernel 工程解剖](/guide/forgekernel-engineering/)：problem、run 与 operator tree 怎么分开，一次 `forge run` 的七段生命周期，1.2 万行 driver 怎么与副作用边界分层，以及 judge、计时、访问与测试四类防线各自落在哪。
+
 <Aside type="note" title="核对口径">
 本章事实以 OpenBMB/ForgeKernel 仓库当前公开内容（README、`docs/design/`、`docs/kb-harvest.md`、`kernels/README.md`）与 JustGoal 论文摘要为一手来源，核对于 2026-10-31。论文仍在 OpenReview 评审中（标为 ICLR 2027 under review），仓库处于 0.1.x 早期版本，命令、模型与成绩都可能变化，请以官方为准。
 </Aside>
@@ -275,6 +277,7 @@ JustGoal 是一个**只给目标**的基线：通用 Agent 只拿到优化目标
 - [milestone 蒸馏设计说明](https://github.com/OpenBMB/ForgeKernel/blob/main/docs/design/milestone-distillation.md)：L0/L1 不变量、两层循环的同构性、诊断分类（G1–G4 / R1–R2）与前缀复用的完整推导。
 - [V1 上线设计说明](https://github.com/OpenBMB/ForgeKernel/blob/main/docs/design/v1-launch.md)：任务定义、judge 与容差、目标与计时、运行目录，以及「从上线面上拿掉了什么」的那张表。
 - [知识库收割说明](https://github.com/OpenBMB/ForgeKernel/blob/main/docs/kb-harvest.md)：知识库条目怎么进、怎么审，以及 lint 抓不到的那一类盲区。
+- [ForgeKernel 工程解剖](/guide/forgekernel-engineering/)：本站配套深读，沿一次 run 的生命周期拆开目录分层、模块职责、合同、轨迹、补丁事务与测量完整性。
 - 上一章回顾：[BBuf skills：经验沉淀](/guide/bbuf/)，看经验怎么变成可检索的上下文；下一章 [Skills 与经验沉淀](/guide/skills/)，把本章的里程碑与知识库写成一类可复用资产。
 
 > 来源与版本：本章事实以 OpenBMB/ForgeKernel 仓库当前公开内容（README、`docs/design/v1-launch.md`、`docs/design/milestone-distillation.md`、`docs/kb-harvest.md`、`kernels/README.md`）与 JustGoal 论文摘要为一手来源，核对于 2026-10-31。仓库处于 0.1.x 早期版本，论文仍在评审中，命令、模型、成绩与目录都可能变化，请以官方为准。完整链接见[资料库](/resources/)。

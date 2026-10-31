@@ -67,6 +67,7 @@ export default defineConfig({
             { label: 'TIRx：编译器作为工具层', link: '/guide/tirx/' },
             { label: 'BBuf skills：经验沉淀', link: '/guide/bbuf/' },
             { label: 'ForgeKernel：自演化基线', link: '/guide/forgekernel/' },
+            { label: 'ForgeKernel 工程解剖', link: '/guide/forgekernel-engineering/' },
           ],
         },
         {

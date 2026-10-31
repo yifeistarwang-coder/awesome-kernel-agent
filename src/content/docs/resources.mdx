@@ -37,6 +37,11 @@ description: 按官方项目、论文解读、工具链与社区博客分类整�
 | ForgeKernel kernels 目录 | 论文生成的 24 个 CuTe DSL kernel（H100 与 B200）与 1 个论文后的 CUDA C++ kernel，逐个列出对照物、加速比与环境。 | [打开](https://github.com/OpenBMB/ForgeKernel/tree/main/kernels) | 核对于 2026-10-31 |
 | ForgeKernel 设计文档 | V1 上线设计说明（任务定义、judge 与容差、目标与计时、运行目录）与里程碑蒸馏设计说明（L0/L1 不变量、两层循环、诊断分类）。 | [打开](https://github.com/OpenBMB/ForgeKernel/tree/main/docs/design) | 核对于 2026-10-31 |
 | ForgeKernel 知识库说明 | 知识库条目怎么进、怎么审，以及机械 lint 抓不到的那一类盲区。 | [打开](https://github.com/OpenBMB/ForgeKernel/blob/main/docs/kb-harvest.md) | 核对于 2026-10-31 |
+| ForgeKernel 代码目录 | harness 的实现目录：CLI、任务与运行、两层循环、GPU 作业、判据、护栏与监控；第 8 章配套的工程解剖以此为代码地图。 | [打开](https://github.com/OpenBMB/ForgeKernel/tree/main/src/forgekernel) | 核对于 2026-10-31 |
+| ForgeKernel card 契约 | operator card 的工作区契约：两套计时窗口、同作业镜像配对、三 workload 几何平均与 `window.toml` 的完整规则。 | [打开](https://github.com/OpenBMB/ForgeKernel/blob/main/src/forgekernel/card_template/README.md) | 核对于 2026-10-31 |
+| ForgeKernel 黑盒模式 | 参考实现如何密封、密钥如何进作业，以及 guard 为什么只是 tripwire、不是边界。 | [打开](https://github.com/OpenBMB/ForgeKernel/blob/main/docs/blackbox-mode.md) | 核对于 2026-10-31 |
+| ForgeKernel 正确性监控 | 结束后的压力输入 profile、报警分级，以及「只记录、不改判」的边界。 | [打开](https://github.com/OpenBMB/ForgeKernel/blob/main/docs/correctness-monitor.md) | 核对于 2026-10-31 |
+| ForgeKernel driver 测试 | 用 FakeBackend 把探针子循环、relaxed revert、平台期转 meta 与 prefix reuse 测成确定性序列；读控制流时最好先读它。 | [打开](https://github.com/OpenBMB/ForgeKernel/blob/main/tests/test_loop_driver.py) | 核对于 2026-10-31 |
 | SOL-ExecBench | NVIDIA 的 kernel 执行基准，ForgeKernel 提供了它的排行榜任务模式并在其 FlashInfer-Bench 榜单取得第一。 | [打开](https://research.nvidia.com/benchmarks/sol-execbench) | 核对于 2026-10-31 |
 
 ## 论文与解读

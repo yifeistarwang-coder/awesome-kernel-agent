@@ -1,0 +1,193 @@
+---
+import Figure from '../Figure.astro';
+---
+
+<Figure caption="ForgeKernel 的工程分层：问题写在 tasks/ 与 global_config/，一次运行被快照进 .artifacts/<run>/，循环在 operator card 上工作。driver 是确定性控制流，loop/cli 与 submit/ 是循环运行时的副作用边界；meta、skills、hw_kb 与测试从侧面支撑，运行产物与问题定义始终分开。">
+	<div class="ka-diagram ka-fkarch">
+		<svg
+			viewBox="0 0 960 720"
+			role="img"
+			aria-labelledby="ka-fkarch-title ka-fkarch-desc"
+			xmlns="http://www.w3.org/2000/svg"
+		>
+			<title id="ka-fkarch-title">ForgeKernel 工程分层与数据流</title>
+			<desc id="ka-fkarch-desc">
+				第一层是问题：tasks/&lt;op&gt;/ 写任务定义与参考实现，global_config/ 提供默认配置，两者都在 git 里。第二层是编排：forge CLI 调用 launch 与 runs，task 合并并校验配置，judge 写正确性判据，taskcard 与 scaffold 生成 operator card。第三层是循环：loop/driver.py 是确定性控制流，通过 Backend 协议调用 agent、GPU 与 git；loop/cli.py 与 submit/ 是循环运行时的副作用边界。右侧是运行产物：.artifacts/&lt;op&gt;_&lt;id&gt;/ 内含 run.json、task 快照、check/、operators/、ws/、best/ 与 report.md；operator card 是独立 git 仓库，含 kernel、eval/、gpu_entry.sh、window.toml、milestone.md 与两份 JSONL 轨迹。底部是支撑层：meta 提示词、skills、hw_kb 与 CPU 测试。
+			</desc>
+
+			<defs>
+				<pattern id="ka-fkarch-grid" width="28" height="28" patternUnits="userSpaceOnUse">
+					<path d="M28 0H0V28" fill="none" stroke="var(--ka-dg-grid)" stroke-width="1"></path>
+				</pattern>
+				<marker
+					id="ka-fkarch-arrow"
+					viewBox="0 0 8 8"
+					refX="6.6"
+					refY="4"
+					markerWidth="7"
+					markerHeight="7"
+					orient="auto-start-reverse"
+				>
+					<path d="M0 0 8 4 0 8Z" fill="var(--ka-dg-line-strong)"></path>
+				</marker>
+				<marker
+					id="ka-fkarch-arrow-teal"
+					viewBox="0 0 8 8"
+					refX="6.6"
+					refY="4"
+					markerWidth="7"
+					markerHeight="7"
+					orient="auto-start-reverse"
+				>
+					<path d="M0 0 8 4 0 8Z" fill="var(--ka-dg-teal)"></path>
+				</marker>
+			</defs>
+
+			<rect width="960" height="720" fill="url(#ka-fkarch-grid)" opacity="0.6"></rect>
+
+			<text x="28" y="30" class="dg-mono dg-muted" font-size="12.5">
+				FORGEKERNEL · 工程分层与数据流
+			</text>
+			<text x="932" y="30" text-anchor="end" class="dg-mono dg-teal" font-size="12.5">
+				PROBLEM → RUN → TREE
+			</text>
+
+			<!-- 01 问题层 -->
+			<text x="28" y="54" class="dg-mono dg-muted" font-size="11.5">01 / PROBLEM · 写进 git</text>
+			<g>
+				<rect x="28" y="64" width="456" height="72" rx="12" class="dg-surface dg-line"></rect>
+				<text x="44" y="88" class="dg-mono dg-teal" font-size="12.5">tasks/&lt;op&gt;/</text>
+				<text x="44" y="111" class="dg-muted" font-size="13.5">task.toml · description.md · shapes.json</text>
+				<text x="44" y="129" class="dg-muted" font-size="13.5">reference/ · inputs/</text>
+			</g>
+			<g>
+				<rect x="508" y="64" width="424" height="72" rx="12" class="dg-surface dg-line"></rect>
+				<text x="524" y="88" class="dg-mono dg-teal" font-size="12.5">global_config/</text>
+				<text x="524" y="111" class="dg-muted" font-size="13.5">models.toml · loop.toml · backends.toml</text>
+				<text x="524" y="129" class="dg-muted" font-size="13.5">任务只写与默认值不同的键</text>
+			</g>
+
+			<path d="M480 136V154" fill="none" stroke="var(--ka-dg-line-strong)" stroke-width="1.4" marker-end="url(#ka-fkarch-arrow)"></path>
+
+			<!-- 02 编排层 -->
+			<text x="28" y="178" class="dg-mono dg-muted" font-size="11.5">02 / ORCHESTRATION · 把问题变成一次 run</text>
+			<g>
+				<rect x="28" y="188" width="904" height="86" rx="13" class="dg-surface-2 dg-line-strong"></rect>
+				<g>
+					<rect x="44" y="204" width="206" height="54" rx="9" class="dg-surface dg-line"></rect>
+					<text x="56" y="224" class="dg-text" font-size="14">forge CLI</text>
+					<text x="56" y="244" class="dg-mono dg-muted" font-size="11">init · new · run · status · harvest</text>
+				</g>
+				<g>
+					<rect x="266" y="204" width="214" height="54" rx="9" class="dg-surface dg-line"></rect>
+					<text x="278" y="224" class="dg-text" font-size="14">launch + runs</text>
+					<text x="278" y="244" class="dg-mono dg-muted" font-size="11">校验 · 快照 · 状态 · 报告</text>
+				</g>
+				<g>
+					<rect x="496" y="204" width="196" height="54" rx="9" class="dg-surface dg-line"></rect>
+					<text x="508" y="224" class="dg-text" font-size="14">task + judge</text>
+					<text x="508" y="244" class="dg-mono dg-muted" font-size="11">合并配置 · 写 check/</text>
+				</g>
+				<g>
+					<rect x="708" y="204" width="208" height="54" rx="9" class="dg-surface dg-line"></rect>
+					<text x="720" y="224" class="dg-text" font-size="14">taskcard + scaffold</text>
+					<text x="720" y="244" class="dg-mono dg-muted" font-size="11">生成 card · 密封参考</text>
+				</g>
+				<g aria-hidden="true" fill="none" stroke="var(--ka-dg-line-strong)" stroke-width="1.3">
+					<path d="M250 231H260" marker-end="url(#ka-fkarch-arrow)"></path>
+					<path d="M480 231H490" marker-end="url(#ka-fkarch-arrow)"></path>
+					<path d="M692 231H702" marker-end="url(#ka-fkarch-arrow)"></path>
+				</g>
+				<text x="44" y="266" class="dg-faint" fill="var(--ka-dg-muted)" font-size="12">
+					命令面不接受覆盖问题的参数：要改就改任务定义，或新建任务
+				</text>
+			</g>
+
+			<path d="M480 274V292" fill="none" stroke="var(--ka-dg-line-strong)" stroke-width="1.4" marker-end="url(#ka-fkarch-arrow)"></path>
+
+			<!-- 03 循环层 -->
+			<text x="28" y="316" class="dg-mono dg-muted" font-size="11.5">03 / LOOP · 确定性核心与副作用边界</text>
+			<g>
+				<rect x="28" y="326" width="576" height="268" rx="13" class="dg-surface dg-line"></rect>
+				<rect x="44" y="340" width="544" height="92" rx="10" class="dg-surface-2 dg-line-strong"></rect>
+				<text x="60" y="362" class="dg-mono dg-teal" font-size="11.5">loop/driver.py · 确定性控制流</text>
+				<text x="60" y="385" class="dg-text" font-size="14">run_inner_iteration · run_inner_loop · run_two_layer · run_meta_step</text>
+				<text x="60" y="407" class="dg-muted" font-size="12.5">Backend 协议：run_agent / submit_gpu / commit / push / reset / head</text>
+				<text x="60" y="425" class="dg-mono dg-faint" fill="var(--ka-dg-muted)" font-size="11">测试注入 FakeBackend，控制流不需要 GPU</text>
+
+				<g>
+					<rect x="44" y="448" width="264" height="78" rx="9" class="dg-surface dg-line"></rect>
+					<text x="58" y="470" class="dg-text" font-size="14">loop/cli.py · 真实适配器</text>
+					<text x="58" y="492" class="dg-muted" font-size="12.5">agent CLI · git · GPU 提交</text>
+					<text x="58" y="512" class="dg-mono dg-faint" fill="var(--ka-dg-muted)" font-size="11">循环运行的副作用边界</text>
+				</g>
+				<g>
+					<rect x="324" y="448" width="264" height="78" rx="9" class="dg-surface dg-line"></rect>
+					<text x="338" y="470" class="dg-text" font-size="14">submit/ · GPU 作业</text>
+					<text x="338" y="492" class="dg-muted" font-size="12.5">local / ssh · 每卡锁 · git archive</text>
+					<text x="338" y="512" class="dg-mono dg-faint" fill="var(--ka-dg-muted)" font-size="11">状态 / 日志 / 退出码</text>
+				</g>
+				<g aria-hidden="true" fill="none" stroke="var(--ka-dg-line-strong)" stroke-width="1.3">
+					<path d="M176 432V442" marker-end="url(#ka-fkarch-arrow)"></path>
+					<path d="M456 432V442" marker-end="url(#ka-fkarch-arrow)"></path>
+				</g>
+				<text x="44" y="550" class="dg-mono dg-teal" font-size="11">CONTRACTS &amp; GUARDS</text>
+				<text x="44" y="568" class="dg-muted" font-size="11.5">parse · trajectory · resume · meta_trajectory · agent_policy</text>
+				<text x="44" y="584" class="dg-muted" font-size="11.5">harness_guard · window_contract · precision_gate · timing_audit</text>
+			</g>
+
+			<!-- 04 运行产物 -->
+			<text x="628" y="316" class="dg-mono dg-muted" font-size="11.5">04 / RUN + TREE · 运行产物</text>
+			<g>
+				<rect x="628" y="326" width="304" height="158" rx="13" class="dg-surface dg-line"></rect>
+				<text x="644" y="352" class="dg-mono dg-teal" font-size="12">.artifacts/&lt;op&gt;_&lt;id&gt;/</text>
+				<text x="644" y="376" class="dg-muted" font-size="12.5">run.json · task/ 快照 · check/</text>
+				<text x="644" y="396" class="dg-muted" font-size="12.5">operators/ · ws/ · best/ · report.md</text>
+				<text x="644" y="424" class="dg-text" font-size="13">operator card</text>
+				<text x="644" y="444" class="dg-muted" font-size="12">kernel · eval/ · gpu_entry.sh</text>
+				<text x="644" y="462" class="dg-muted" font-size="12">window.toml · milestone.md · 两份 jsonl</text>
+			</g>
+			<g>
+				<rect x="628" y="500" width="304" height="70" rx="12" class="dg-surface-2 dg-line-strong"></rect>
+				<text x="644" y="524" class="dg-text" font-size="14">GPU 作业</text>
+				<text x="644" y="544" class="dg-muted" font-size="12.5">密封参考 + 学生 kernel 同作业配对</text>
+				<text x="644" y="562" class="dg-mono dg-faint" fill="var(--ka-dg-muted)" font-size="11">NCU 可选；日志回到 run</text>
+			</g>
+
+			<!-- 数据流 -->
+			<g aria-hidden="true" fill="none" stroke-width="1.3">
+				<path d="M604 360H620" stroke="var(--ka-dg-line-strong)" marker-end="url(#ka-fkarch-arrow)"></path>
+				<path d="M620 400H604" stroke="var(--ka-dg-teal)" stroke-dasharray="4 4" marker-end="url(#ka-fkarch-arrow-teal)"></path>
+				<path d="M588 512H620" stroke="var(--ka-dg-line-strong)" marker-end="url(#ka-fkarch-arrow)"></path>
+				<path d="M780 500V490" stroke="var(--ka-dg-teal)" stroke-dasharray="4 4" marker-end="url(#ka-fkarch-arrow-teal)"></path>
+			</g>
+
+			<!-- 05 支撑层 -->
+			<text x="28" y="604" class="dg-mono dg-muted" font-size="11.5">05 / SUPPORT · 知识、工具与测试</text>
+			<g>
+				<rect x="28" y="616" width="212" height="76" rx="11" class="dg-surface dg-line"></rect>
+				<text x="42" y="640" class="dg-text" font-size="14">meta/ · 19 份</text>
+				<text x="42" y="661" class="dg-muted" font-size="11.5">operator-agnostic 提示词</text>
+				<text x="42" y="679" class="dg-muted" font-size="11.5">运行时绑定，不写算子名</text>
+			</g>
+			<g>
+				<rect x="252" y="616" width="212" height="76" rx="11" class="dg-surface dg-line"></rect>
+				<text x="266" y="640" class="dg-text" font-size="14">skills/ · 7 个</text>
+				<text x="266" y="661" class="dg-muted" font-size="11.5">SKILL.md + 脚本</text>
+				<text x="266" y="679" class="dg-muted" font-size="11.5">机器判词，harness 可导入</text>
+			</g>
+			<g>
+				<rect x="476" y="616" width="212" height="76" rx="11" class="dg-surface dg-line"></rect>
+				<text x="490" y="640" class="dg-text" font-size="14">hw_kb/ · 192 条</text>
+				<text x="490" y="661" class="dg-muted" font-size="11.5">按语言 × 架构分树</text>
+				<text x="490" y="679" class="dg-muted" font-size="11.5">唯一允许含示例代码</text>
+			</g>
+			<g>
+				<rect x="700" y="616" width="232" height="76" rx="11" class="dg-surface dg-line"></rect>
+				<text x="714" y="640" class="dg-text" font-size="14">tests/ · 1850 个</text>
+				<text x="714" y="661" class="dg-muted" font-size="11.5">80 个文件，CPU 可跑</text>
+				<text x="714" y="679" class="dg-muted" font-size="11.5">FakeBackend 验证控制流</text>
+			</g>
+		</svg>
+	</div>
+</Figure>

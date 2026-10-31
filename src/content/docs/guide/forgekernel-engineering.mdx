@@ -1,0 +1,658 @@
+---
+title: ForgeKernel 工程解剖：一次 run 里的分层、合同与防线
+description: 从代码层拆开 OpenBMB/ForgeKernel：problem、run 与 operator tree 的三层结构，forge new/run 的七段生命周期，driver 与 adapter 的分层，任务、里程碑、judge、计时、交付与访问六类合同，以及泄漏、测量与测试的工程防线。
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import Exercise from '../../../components/Exercise.astro';
+import ForgeKernelArchitecture from '../../../components/diagrams/ForgeKernelArchitecture.astro';
+import ForgeKernelLifecycle from '../../../components/diagrams/ForgeKernelLifecycle.astro';
+
+[第 8 章](/guide/forgekernel/)回答的是「为什么」：为什么架构要先定、为什么要有两层循环、为什么被接受的 kernel 要变成下一轮的参考实现。这一页打开仓库，回答「怎么做的」——目录怎么分，一次 `forge run` 经过哪些阶段，几万行代码怎么分层，哪些约束被写成了机器能检查的合同，哪些地方只是提示词、哪些地方是真正的机械边界。
+
+本页是一篇**工程解剖**，不是第二遍概念介绍。读完之后，你应该能自己找到 `driver.py` 的入口、说清一次 run 的产物落在哪里、判断一条新规则该加在合同层还是提示词层，并从仓库里挑出可以搬到自己 harness 的做法——也能看清哪些部分不该照抄。
+
+<Aside type="note" title="核对口径">
+本页事实来自 2026-10-31 克隆的 OpenBMB/ForgeKernel `main` 分支（HEAD `5030503`，`pyproject.toml` 版本 0.1.0）的公开代码与文档。规模数字是当天快照：`src/forgekernel/` 约 38,013 行 Python，`tests/` 约 33,876 行、80 个 `test_*.py`、1,850 个测试函数；`meta/` 19 份提示词，`skills/` 7 个 skill，`hw_kb/` 192 个条目。仓库处于 0.1.x 早期版本，目录、行数与模块名都会变化；数字用来建立规模感，不应被当成稳定接口。
+</Aside>
+
+## 学习目标
+
+读完本页，你应当能够：
+
+- 画出 problem、run 与 operator tree 三层结构，并说出每一层由谁写、是否进 git、生命周期多长；
+- 按七段生命周期复述 `forge new` 到 `forge run` 结束之间发生了什么，以及每一段的主要失败路径；
+- 解释 `driver.py` 与 `loop/cli.py` 的分工，说明为什么 1.2 万行的控制流仍然可以被单元测试；
+- 列出任务、里程碑、judge、计时、交付与访问六类合同，各举一个「违反后会怎样」的例子；
+- 说清内层循环的 relaxed revert、build phase、placeholder ledger 与探针计费分别解决什么问题；
+- 说清外层补丁为什么是一笔事务，prefix reuse 与 reopen closure 的区别在哪里；
+- 复述测量完整性与访问边界的几道防线，并指出每一道的局限；
+- 从仓库里挑出五条可以搬走的工程实践，以及三条不该照搬的东西。
+
+## 先用五个词定位
+
+仓库里反复出现五个词。先把它们对齐，后面读代码会顺很多。
+
+| 词 | 在仓库里指什么 | 为什么重要 |
+| --- | --- | --- |
+| **problem（问题）** | `tasks/<op>/` 与 `global_config/`，都在 git 里 | 问题可版本化、可复现；一次 run 不能改它 |
+| **run（运行）** | `.artifacts/<task>_<id>/`，不进 git | 每次运行独立；resume 只读自己的目录 |
+| **operator tree / card（算子树 / 卡片）** | `operators/<op>/`，一个独立的 git 仓库 | 循环真正工作的地方；学生树与参考树物理分开 |
+| **contract（合同）** | milestone、judge、`window.toml`、记录块等 | 把「必须成立」写成机器可检查的形状 |
+| **adapter（适配器）** | `loop/cli.py`、`submit/`、`agents.py` | 循环里唯一驱动 agent、GPU 与 git 的地方 |
+
+这五个词对应一条很朴素的工程原则：**把问题、运行状态与工作副本分开，把判断写成合同，把副作用关进一个边界。** 后面所有复杂机制，基本都是这条原则在具体事故上的展开。
+
+## 仓库地图：三层世界
+
+<ForgeKernelArchitecture />
+
+仓库不是「一个大 Python 包加几个脚本」。它同时维护三个世界，而且刻意不让它们混在一起：
+
+1. **问题世界**：`tasks/<op>/` 与 `global_config/`。前者写这次要优化什么，后者是默认配置的底层。两者都进 git。
+2. **运行世界**：`.artifacts/<task>_<id>/`。每次运行一个新目录，snapshot 下来，不继承上一次运行。
+3. **工作世界**：`operators/<op>/` 与 `operators/_<op>ref/`。前者是学生与 teacher 共用的 card，后者是 teacher 独占的参考树；card 本身是独立 git 仓库，学生工作区是它的 single-branch clone。
+
+### 问题层：任务只写差异
+
+`tasks/<op>/` 通常只有三个文件，外加可选的 `reference/`、`inputs/`：
+
+```
+tasks/<op>/
+  task.toml          # 语言、架构、参考、目标、模型、预算
+  description.md     # 只写算什么，不写怎么算
+  shapes.json        # 至少 2 个 shape；每个 shape 至少 3 组输入
+  reference/         # 可选：参考实现
+  inputs/            # 可选：用户提供的输入组
+```
+
+`task.toml` 只写与 `global_config/` 不同的键。默认值在 `global_config/models.toml`（agent、模型、超时）、`loop.toml`（目标 1.2×、内层 4 小时、外层 3 轮、写参考 8 小时）和 `backends.toml`（API 端点）里。这个分层与 ForgeTrain 一致：任务描述问题，全局配置描述组织的默认运行方式。
+
+`description.md` 只写「算什么」——签名、shape、dtype、语义、边界约定、合法输入范围。judge 必须能仅凭这份描述独立写出；「显然如此」的省略会变成 judge 的 bug。`shapes.json` 的每个 shape 至少 3 组输入：少于 3 组时 teacher 在写 judge 时补齐，补的组必须覆盖典型分布、合法极值、算子特有结构，并写明每组用来抓什么。**每个 shape、每组输入权重相同**，没有「代表性 shape」。
+
+### 运行层：一次 run 是一个不可变快照
+
+`runs.py` 创建一个新的运行目录，并把 `tasks/<op>/` 整个复制进 `task/`，再对这份快照算一个 sha256：
+
+```
+.artifacts/<task>_<id>/
+  run.json          # 任务名、快照摘要、harness commit、机器、状态、阶段
+  task/             # 启动时的任务副本；之后所有步骤都读这份
+  check/            # teacher 写的 judge：definition.json / judge.py / groups.json
+  operators/        # card 与参考树
+  ws/               # 学生工作区（card 的 single-branch clone）
+  best/             # 最终确认的 kernel
+  report.md         # 运行报告
+  loop_summary.json # 停止原因、确认结果、监控状态
+  run.log           # 运行输出
+```
+
+两个不变量在这里落地：
+
+- **一次 run 不能改问题。** `open_run()` 会重算 `task/` 的摘要，与 `run.json` 里的 `snapshot_sha256` 不一致就拒绝打开，提示「a run cannot change its task — start a new run instead」。命令行也不接受覆盖问题定义的参数；要改就改任务或新建任务。
+- **新 run 不继承旧 run。** 每次 `forge new` 分配新目录、重新快照；`forge run` 重新测量。resume 只读自己的目录。这样即使同一任务跑很多次，结果也可比较。
+
+### 工作层：card 是循环的工地
+
+`taskcard.py` 与 `scaffold.py` 把任务变成 card。card 是一个独立 git 仓库，里面既有学生要改的 kernel，也有判据、计时入口与运行合同：
+
+```
+operators/<op>/
+  kernel.py                # 或 kernel.cu：学生唯一可改的文件
+  eval/                    # bench、计时、精度、leaderboard 评测器
+  gpu_entry.sh             # GPU 作业入口：correctness / perf / ncu / cmd
+  window.toml              # 计时窗口的内容合同
+  submit.toml              # 作业发到哪台机器（由 local.env 生成）
+  loop.toml                # 本次 run 的循环配置（gitignore）
+  milestone.md             # teacher 写的里程碑
+  status.jsonl             # 内层轨迹，一轮一行
+  meta_status.jsonl        # 外层轨迹，一步一行
+  README.md                # 工作区契约
+  agent/                   # 从 meta/*_prompt.md 渲染出的三个提示词
+```
+
+`operators/_<op>ref/` 是参考树，只有 teacher 能读。source 模式下，teacher 还能读到任务的参考源码，并在参考树里侦察它的硬件行为；blackbox 模式下它只能运行、计时、profile、看 SASS。学生的工作区 `ws/` 是 card 的 single-branch clone，同级分支的 refs 不在里面，跨分支读答案会直接失败。card 里的 `eval/`、`gpu_entry.sh`、`ref_bin/` 由 harness 保护，学生改了也会被撤回——这部分在「访问边界」一节展开。
+
+<Aside type="tip" title="为什么这对读代码有帮助">
+只要记住「问题在 `tasks/`，运行在 `.artifacts/`，工地在 `operators/`」，大部分路径就不用猜。读源码时先问「这个函数在哪个世界工作」，比逐行追调用链有效得多。
+</Aside>
+
+## 一次 run 的七段生命周期
+
+<ForgeKernelLifecycle />
+
+`forge new` 与 `forge run` 的公开命令面很窄：`init`、`new`、`run`、`status`、`harvest`、`export`。其余命令放在 `forge help internal` 里，供调试用，不是第二种配置入口。下面按 `launch._drive()` 的顺序走一遍。
+
+### 01 `forge new`：校验、快照、打印计划
+
+`forge new tasks/<op>` 先校验任务：表结构、未知键、`description.md` 与 `shapes.json` 是否存在、参考调用是否可定位、shape 与输入组是否合法。校验通过后创建 `.artifacts/<task>_<id>/`，快照任务，写入 `run.json`。`--dry-run` 只做检查并打印计划，不落盘；这是第一次跑任务时最该用的参数。
+
+### 02 teacher 写 judge：一份独立的正确性判据
+
+judge 由 teacher 在独立会话里写。source 模式下它可以读参考源码来确定语义，但产物是一份独立、可读、不追求性能的 PyTorch 实现；没有参考、或参考由 `/goal` 生成时，judge 只凭 `description.md` 与 `shapes.json` 写。产物是 `check/` 下三个文件：
+
+- `definition.json`：输入/输出的名字、shape（用任务的轴名或整数）、dtype；
+- `judge.py`：`run(inputs)` 的语义实现，以及 `make_inputs(axes, group, seed, device)`；
+- `groups.json`：每个 shape 补齐到 3 组输入的名单、用途与种子。
+
+`judge.check_problems()` 先做**纯 CPU 静态检查**：JSON 能否解析、名字是否合法、dtype 是否在支持列表、shape 的维度是否引用任务的轴、judge 是否解析得动、输入组是否合法。静态检查不过就带问题清单让 teacher 重写，最多 3 次。注意这一步还没有 GPU：能在 CPU 抓到的错误，不应该花 GPU 时间去发现。
+
+### 03 生成 card：把任务变成可运行的工地
+
+judge 的静态检查通过后，`taskcard.write_card()` 把任务变成真正可运行的 card：
+
+1. 从模板 scaffold 出 `operators/<op>/`，生成 kernel stub、`gpu_entry.sh`、`eval/`、`window.toml`、`submit.toml` 与 `.gitignore`；
+2. 把 `eval/` 的评测器与 `problem.json` 写进 card，`problem.json` 里包含 shape、输入组、judge 定义与容差占位；
+3. 把 card 初始化成一个独立 git 仓库，提交初始版本。
+
+如果任务有参考实现，`seal_reference()` 紧接着把参考密封进 card 的 `ref_bin/`，同时生成 teacher 独占的 `operators/_<op>ref/`，并把 `reference_impl` 写进 `problem.json`；两个树各自提交。此时 card 已经拥有评测器、参考与 kernel stub，judge 的定义也在 `problem.json` 里，但容差还没有冻结。
+
+### 04 GPU 校准：对齐 judge 与参考，并准备开跑
+
+card 生成后，harness 在 GPU 上跑一次 `calibrate` 作业：把参考与 judge 在**每个 shape 的每组输入**上逐输出比对。对上了，就把容差写进 `problem.json` 并冻结，同时提交 card 与参考树：
+
+> 每个输出的容差 = 参考相对 judge 的**最大误差的两倍**，再取一个由输出 dtype 决定的相对下限（bf16 ≈ 7.8e-3、fp16 ≈ 9.8e-4、fp32 ≈ 1.2e-7）。
+
+取两倍最大值而不是平均值，是因为另一个正确 kernel 换了求和顺序后，误差落在参考误差之上或之下都常见。对不上，就把数字退回给 teacher 修 judge，并丢弃两棵树重来；最多 3 次，之后运行以错误结束。如果任务没有参考实现，容差直接取 dtype 下限，并记为「没有参考可校准」。
+
+容差冻结后，harness 再跑一次 `ncu_probe` 作业，确认这台机器能读性能计数器；不能读就把 `loop.toml` 里的 NCU 通道关掉，运行降级为只按计时推进。最后写 `loop.toml`，把 card clone 成 `ws/`，学生之后只在这里改 kernel。至此判据、计时入口、参考、工作区与 deny 清单都已就位。
+
+### 05 侦察与蒸馏：从参考到 M0
+
+如果 milestone 还是空的，`run_two_layer()` 会在进入内层循环前做一次蒸馏：
+
+- **source 模式**：teacher 读参考源码，必要时再跑侦察脚本，然后写 milestone v1；
+- **blackbox 模式**：teacher 读不到源码，只能运行、计时、profile、看 SASS；侦察报告是源码的替代输入；
+- **没有参考**：先用 `/goal` 会话写一份参考，它必须通过 judge，才能被当作参考使用。
+
+蒸馏的输出是一份按固定骨架写的 `milestone.md`。`milestone.validate_milestone()` 会检查章节顺序、决策五元组、DAG 与 gate 行；不合规就重写。v1 是唯一没有回滚对象的写入——后面每个补丁都有快照可回退，v1 没有。所以 v1 在重写若干轮后仍不合规，运行**拒绝开跑**，而不是花 GPU 预算去优化一份有缺陷的课程。
+
+### 06 两层循环：内层实现，外层诊断
+
+进入 `run_two_layer()` 后：
+
+- **内层**一次只实现 milestone 里的一行决策（或一个原子组），提交、推分支、跑 GPU 作业，拿到正确性与计时，再跑一次 NCU，追加一条 `IterationRecord`；
+- **外层**在内层平台期、卡住或决策图走穷时介入，读整条轨迹，诊断是 milestone 的哪类缺陷，打补丁，然后从依赖点续跑。
+
+这一段的细节最多，下面「内层循环」与「外层循环」两节单独讲。
+
+### 07 结束：确认、监控、收割、报告
+
+循环停下后，`forge run` 还要做四件事：
+
+1. **确认**：把最好的 KEEP 版本再测 3 次（`confirm_jobs` 可配），取中位数。一次作业只是一个节点抽样；H100 节点之间的绝对延迟可以差约 ±6%，单次读数不足以支撑最终声明。
+2. **正确性监控**：用新种子与压力输入重跑 judge，检查 NaN/inf、两次运行是否一致。它只记录，不改判；唯一的例外是 `forge run` 的退出码——监控报警的 kernel 不算达标。
+3. **知识库收割**：把本次运行认证过的硬件机制写成 `hw_kb/` 条目，等人工复核。
+4. **报告**：写 `report.md`，把 `best/kernel.py` 放到 `best/`，写 `loop_summary.json`。达到目标退出 0，否则退出 2。
+
+<Aside type="caution" title="失败路径是设计的一部分">
+七段里每一段都有明确出口：judge 不一致就重写，容差仍不一致就丢弃 card 重来，NCU 不可用就降级，没有参考就先生成，v1 不合规就拒绝开跑，补丁没有收益就回滚，监控报警就不算达标。**一个 harness 的成熟度，更多体现在失败时留下什么，而不是成功时跑得多快。**
+</Aside>
+
+## 模块分层：纯控制流与副作用边界
+
+`src/forgekernel/` 的模块可以按职责分成七层：
+
+| 层 | 主要模块 | 职责 |
+| --- | --- | --- |
+| CLI 与编排 | `__main__.py`、`launch.py`、`runs.py` | 命令分发；创建/打开 run；把任务变成运行计划 |
+| 领域对象 | `task.py`、`judge.py`、`taskcard.py`、`scaffold.py`、`milestone.py`、`baseline.py`、`sealref.py`、`leaderboard.py` | 校验任务、写判据、生成 card、解析里程碑、密封参考 |
+| 循环核心 | `loop/driver.py` | 两层循环的确定性控制流：迭代、探针、门禁、补丁、恢复 |
+| 解析与记录 | `loop/parse.py`、`inner/trajectory.py`、`meta_trajectory.py`、`resume/invalidation.py` | 把 agent 文本变成类型；记录内层/外层轨迹；计算续跑点 |
+| 副作用适配 | `loop/cli.py`、`submit/`、`agents.py`、`provider.py` | 启动 agent CLI、提交 GPU 作业、git 提交/推送/重置 |
+| 护栏 | `agent_policy.py`、`harness_guard.py`、`window_contract.py`、`precision_gate.py`、`timing_audit.py`、`monitor/`、`kb_lint.py` | 访问控制、harness 防篡改、计时合同、精度门、正确性监控、知识库 lint |
+| 支撑资产 | `meta/`、`skills/`、`hw_kb/`、`scripts/` | 提示词、工具、硬件知识、自演化脚本 |
+
+### 一个协议，两个世界
+
+整个循环的可测试性来自一个很小的协议。`loop/driver.py` 的 `DriverBackend` 只要求六件事：
+
+```python
+class DriverBackend(Protocol):
+    def run_agent(self, prompt: str) -> str: ...
+    def submit_gpu(self, branch: str, mode: str) -> str: ...
+    def commit(self, message: str) -> str: ...
+    def push_branch(self, branch: str) -> None: ...
+    def reset(self, ref: str) -> None: ...
+    def head(self) -> str: ...
+```
+
+`driver.py` 只依赖这个协议，不 import `subprocess`，不碰真实 GPU，不直接写 git。`loop/cli.py` 实现真实适配器：把 prompt 交给 headless agent CLI，把分支交给 `submit/`，把提交交给 git。测试里换成 `FakeBackend`：`run_agent` 返回预先写好的回复，`submit_gpu` 返回预先写好的作业日志，`commit` 递增一个假 sha。于是「平台期后进入 meta」「补丁无收益回滚」「探针通过后落地」这些控制流都能在 CPU 上确定性地测。
+
+<Aside type="note" title="driver.py 为什么有 1.2 万行">
+因为每条规则都对应一次真实事故，不是因为它把控制流写复杂了。举四个例子：
+
+- `_unchanged_tree_reading`：只改 `notes/` 的提交不重新测量，直接复用上一行读数。否则同一棵树多测一次只是多一个噪声抽样，可能让「运气」成为新的 best。
+- `ProbeBattle`：探针的轮次按「一次战斗」计费，而不是按单轮。一个探针反复失败最后通过，说明这是知识缺口，不是普通的一次 G3；否则它永远不会进入外层诊断。
+- `NoRunError`：runner 丢了、机器没跑起来，不能算 kernel 失败。否则一次 ssh 传输失败会永久污染这棵树的参考定价。
+- `CONFIRM_NODE_BAND_PCT = 15`：最终确认与 KEEP 读数差超过 15%，先怀疑机器（比如残留进程占着 GPU），而不是把它当成噪声。
+
+读 `driver.py` 不要从第一行读到最后一行。先读 `run_inner_iteration`、`run_inner_loop`、`run_two_layer` 三个入口，再按需展开某个规则。
+</Aside>
+
+### 行数分布说明什么
+
+| 模块 | 行数（约） | 说明 |
+| --- | --- | --- |
+| `loop/driver.py` | 11,994 | 控制流与规则最多；不是单一算法 |
+| `loop/cli.py` | 3,235 | 真实适配器与启动参数；循环运行的副作用集中在这里 |
+| `leaderboard.py` | 1,519 | 榜单模式的评测器接线 |
+| `loop/goal_ref.py` | 1,557 | 没有参考时用 `/goal` 生成参考 |
+| `window_contract.py` | 1,231 | 计时窗口内容合同 |
+| `milestone.py` | 838 | 里程碑解析与校验 |
+| `task.py` / `judge.py` | 697 / 280 | 任务模型与判据 |
+| `tests/` | 33,876 | 80 个测试文件，1,850 个测试函数 |
+
+这不是「模块越大约好」。它说明这个 harness 的复杂度主要不在 kernel 生成，而在**运行治理**：怎么证明一次运行没有被污染、一个补丁真的有效、一个读数真的可比较。
+
+## 合同：这个 harness 真正的 API
+
+自然语言提示词可以描述意图，但不能作为接口。ForgeKernel 的做法是把所有「必须成立」写成合同，并尽量让机器检查形状，只把语义留给模型与 GPU。
+
+| 合同 | 载体 | 谁写 | 谁检查 | 违反后 |
+| --- | --- | --- | --- | --- |
+| 任务合同 | `task.toml`、`description.md`、`shapes.json` | 用户 | `task.py`、`runs.py` | 校验失败，拒绝创建 run |
+| 里程碑合同 | `milestone.md` | teacher | `milestone.py` | 重写；v1 仍不合规则拒绝开跑 |
+| judge 合同 | `check/` 三个文件 | teacher | `judge.py` + GPU 校准 | 带数字重写；3 次后结束 |
+| 计时合同 | `eval/timing.py`、`window.toml`、`precision_gate` | card / 作者 | driver | 该轮判失败；结构性问题拒绝开跑 |
+| 交付合同 | 学生最后一条消息 | student | `loop/parse.py` | 判为无记录，重问；探针判词不合法则不计 |
+| 访问合同 | deny 清单、agent policy、harness guard | harness | 策略/沙箱/驱动 | 拒绝工具调用；改动被回退 |
+
+### 里程碑：五元组与 DAG
+
+里程碑不是「参考实现的自然语言翻译」。它把优化路径拆成一串决策，每个决策有固定五元组：
+
+```
+**D2.1 <决策名>**
+- Action:            做什么（一句话，不带具体 shape）
+- Purpose:           消除哪个瓶颈 / 满足哪个约束
+- Trigger condition: 什么信号触发（profiler 症状 / 谓词 / shape 范围）
+- Cost:              副作用（smem / 寄存器 / 同步 / 跨 kernel 契约）
+- Depends on:        D1.3 ⇐ / D2.0 ⊗ / D2.2 ⇒
+```
+
+五个标签是机器检查的，大小写必须一致。`⇐` 表示「派生自谁」，是 DAG 的边；`⊗` 表示「必须与谁同一次提交」，是伙伴组；`⇒` 只给人读。每个里程碑还必须有一个 Gate：至少一条端到端性能线、至少一条机制验证线；性能线的数字必须带来源（`[MEASURED, job N]` 或 `[ESTIMATE]`），M0 的每条决策还要标 `[VERIFY:]`，说明用什么证据证明它真的被落实了。
+
+<Aside type="note" title="为什么合同检查的是形状">
+「这个 tile 形状是否合理」是语义问题，机器判不了。但「有没有 Action / Purpose / Trigger / Cost / Depends on」「依赖图有没有环」「gate 有没有来源」「M0 决策有没有 VERIFY 标记」是形状问题，机器可以判。合同先保证课程结构完整，再用 judge 与 GPU 判对错和快慢。**不要把语义判断硬塞进 lint，也不要把结构完整性留给模型自觉。**
+</Aside>
+
+### 交付：一行记录块
+
+学生每一轮的最后一条消息必须是一个记录块，只写客观事实：
+
+```
+decision_id: D2.3
+change:      把主循环 K 方向切块从 2 段改为 4 段，并启用 3 级 smem 流水
+files_touched: kernel.py
+```
+
+hypothesis、瓶颈判断、主观分析**不写进记录**。原因不是不重视推理，而是外层诊断要基于测量的硬件事实，而不是学生自己的叙事。`loop/parse.py` 还识别三种终止形状：`PROBE_REQUEST: notes/x.py`（要一次 GPU 探针）、`EXHAUSTED: <reason>`（决策图走穷）、以及普通记录块。探针的判词也有格式合同：`PROBE PASS max_diff=<number>` 或 `PROBE PASS max_diff=n/a`，多行必须全部 PASS；没有判词就是 `NO VERDICT`，不算通过。
+
+### L1：提示词也要算子无关
+
+`meta/` 下 19 份提示词（含 CUDA 变体）不能出现任何算子名或算子结构词。所有算子特定的东西——milestone、轨迹、参考源码、shape、目标——只能作为运行时输入进入。`scaffold.py` 把 `student_prompt.md`、`diagnose_prompt.md`、`patch_prompt.md` 渲染到 card 的 `agent/` 下，只替换 `{KERNEL_FILE}` 这样的生成期 token；其余 `{MILESTONE_PATH}`、`{WORKSPACE}` 等由 driver 每轮填充。
+
+这条约束的机械判据很朴素：**换算子时 harness 与提示词一行都不用改；需要改才能跑，就说明 L1 破了。** 它保证被复用是「会备课的 teacher」，而不是「某个算子的答案」。
+
+## 内层循环：一次迭代是一个状态机
+
+`driver.py` 的文档字符串把一次迭代压成一行：
+
+> render student prompt → agent →（探针子循环直到拿到记录）→ commit + push → GPU `all`（正确性 + 性能）→ GPU `ncu` → append `IterationRecord`
+
+展开后是下面这台状态机。
+
+### 一次迭代发生了什么
+
+1. **渲染提示词**：注入 milestone、KB 目录、`status.jsonl`、工作区路径、当前 gate、未关闭的 placeholder、死路表。
+2. **学生回合一**：学生可能先要求一次 GPU 探针（`PROBE_REQUEST`），driver 在真实 GPU 上跑 `notes/<x>.py`，把 `PROBE PASS/FAIL` 返回，学生再继续。探针可以跨多轮，driver 按「一次战斗」计费。
+3. **记录落地**：学生输出记录块，driver 解析出 `decision_id`、`change`、`files_touched`，提交并推分支。
+4. **GPU 评估**：同一作业里跑正确性、与参考同作业配对计时；随后再跑一次 NCU 采集 profile。正确性失败就回滚；性能回退**不**回滚。
+5. **追加记录**：把客观事实写进 `status.jsonl`，包括两套计时窗口、NCU 关键指标、profiler 结论、sha、机器、精度门读数。
+
+### 三个 verdict 与 relaxed revert
+
+`IterationRecord.verdict` 只有三个值：
+
+| verdict | 含义 | 触发 |
+| --- | --- | --- |
+| `KEEP` | 这一轮被接受 | 正确性通过，且没有触发回滚条件 |
+| `REVERT` | 这一轮被回滚 | 正确性失败、harness 被改、结构合同失败等 |
+| `NEUTRAL` | 已提交但未评估 | 预绿构建期的子步骤；以及不触发整 kernel 评估的账本行 |
+
+性能回退不触发回滚，这是有意的：学生在执行 teacher 已经验证过的路径，有些决策是给后面让路的脚手架，单独启用时回退是正常的。真正不能容忍的只有正确性。这个设计叫 **relaxed revert**。
+
+它带来一个副作用：轨迹里会留下「性能回退但被保留」的步骤。外层不能只靠 `REVERT` 标记判断方向，只能读测量事实——这正是记录只存客观字段的原因。
+
+### 预绿构建期与 gate
+
+在一条 lineage 第一次正确性通过之前，内层处于**构建期（pre-green）**。此时每个子步骤的提交不跑整 kernel 评估，只记 `NEUTRAL`：对一个半成品做完整评估决定不了什么。整 kernel 评估留给 gate 行——任何 id 含 `gate` 的记录都会触发完整评估，且 gate 行**不能与别的决策打包**。
+
+三个配套纪律：
+
+- **先烟测再 gate**：提交 gate 行前，必须用探针证明每个 kernel 都能 lowering、能在真实 shape 上启动；数值对错留给 gate。
+- **高风险机制逐个挂载**：TMA、mbarrier 流水线、`setmaxregister` 这类「trace 能过、启动就炸」的机制，一次只上一个，每上一个重跑整 kernel 烟测。
+- **两次失败就拆包**：同一个 bundle 连续两次失败（trace 错、启动崩、gate FAIL 都算），第三次不许原样重提；先把高风险机制退回保守形式，拿到第一次绿色，再逐个换回。
+
+### placeholder ledger
+
+一个决策先用保守/占位形式落地，是允许的；但它必须显式声明：
+
+```
+[PLACEHOLDER: D2.3 → 4 级 smem 流水 + 128×64 tile]
+```
+
+换回真实形式时写 `[RESTORED: D2.3]`。driver 根据这些标记维护一本 placeholder 账本：**账本没清空时，gate 行不被接受**。原因是占位形式没有性能读数，gate 也不设性能门槛，不拦的话它会悄悄变成这一阶段的最佳版本。
+
+### 轨迹是数据库，不是聊天记录
+
+`status.jsonl` 一行一条 `IterationRecord`。字段很多，但可以按用途分组：
+
+| 组 | 字段举例 | 用途 |
+| --- | --- | --- |
+| 决策 | `iter`、`decision_id`、`change`、`files_touched` | 知道做了什么 |
+| 正确性 | `correctness`、`error` | 硬门 |
+| 计时 | `bwd_median_ms`、`device_median_ms`、`ref_*`、`vs_ref*`、`workloads` | 判断快慢 |
+| 机器 | `cluster`、`sha`、`base_sha` | 判断可比性 |
+| 证据 | `profiler`、`kernels`、`orch_summary`、`precision` | 给 teacher 诊断 |
+| 复用 | `reading_of` | 这行读数是否借自同一棵树的上一行 |
+
+外层不读原始日志，而是读 `build_digest()` 机械抽取的结构化摘要：目标/达成/差距、逐轮曲线、逐条决策的前后指标与判定、回归记录、profiler 结论、原始工件路径。原始日志、git diff、NCU CSV 只以路径给出，需要时才展开。理由在[设计文档](https://github.com/OpenBMB/ForgeKernel/blob/main/docs/design/milestone-distillation.md)里：**预先用 LLM 摘要，摘要的盲区就会变成诊断的盲区**。他们实际遇到过中途得出「是 occupancy 墙，只能重新切 tile」的错误结论，两轮后才纠正为寄存器溢出。
+
+## 外层循环：补丁是一笔事务
+
+外层由 `run_two_layer()` 驱动：内层停下后，若原因是平台期、卡住或走穷，就进入 meta：诊断、补丁、恢复。
+
+### 诊断分类：G 与 R
+
+| 类别 | 含义 | 典型修法 | 落点 |
+| --- | --- | --- | --- |
+| G1 | 里程碑给的信息不足，学生在盲搜 | 增加抽象决策或触发条件 | milestone |
+| G2 | 决策粒度太粗，学生反复做错同一步 | 拆细该决策 | milestone |
+| G3 | 学生知道要做什么，但不会用某个硬件接口 | 给知识库加示例代码 | `hw_kb/` |
+| G4 | 学生自身噪声，模型偶尔写错 | 容忍 / 重试，不动里程碑 | 无 |
+| R1 | 学生走对了，但被地基参数卡住上限 | 放宽地基决策或结构 | milestone 地基 |
+| R2 | 学生全走完，仍差目标；参考有而里程碑缺 | 补上层决策 | milestone 上层 |
+
+这张表把「学生不行」与「课程不行」分开。G3 的修法不是改里程碑，而是补知识库；G4 的修法不是改任何东西；只有 G1/G2/R1/R2 才改课程。
+
+### 补丁事务：KEEP / REVERT / HOLD
+
+一个里程碑补丁不是「改完就算」。driver 在补丁前存快照，补丁后跑一段内层，然后用 `best_before` 与 `best_after` 归因：
+
+| outcome | 含义 | 动作 |
+| --- | --- | --- |
+| `PENDING` | 补丁刚落地，等待内层段 | 暂不判定 |
+| `KEEP_PATCH` | 段后指标有提升 | 保留里程碑与工作区 |
+| `REVERT_PATCH` | 段后指标没有提升 | 恢复里程碑快照，重置工作区，记入 meta 记忆 |
+| `HOLD_PATCH` | 段内没有任何指标读数（如仍在预绿构建） | 不回滚，事务挂起，等后续补丁合并判定 |
+
+`meta_status.jsonl` 记录诊断、补丁类别、改动条目、方向、前后指标与 outcome。下一次诊断会读到 `REVERT_PATCH`，避免再次提出同一个方向——这是「死路表」在外层的对应物。
+
+### prefix reuse 与 reopen closure
+
+补丁改了一组里程碑条目后，从哪儿继续？仓库里有两套算法：
+
+- **prefix reuse**（`compute_resume`）：沿轨迹找最早受影响的决策，把它和它之后的**全部**决策作废，从它前一个决策的检查点续跑。简单，但一刀切。
+- **reopen closure**（`compute_reopen`）：只重做受影响决策的**依赖闭包**——被改的决策、传递依赖它们的决策、以及这些决策的 `⊗` 伙伴；其余决策保留，树也不回滚。适合「改一个地基决策，但不想重建整段」的场景。
+
+代码注释里给了动机：一次 sparse-attention 运行用了 10 个 meta 步里的 6 个来重建 M0。`compute_reopen` 让一个单决策的地基补丁只重开那一小组，而不是整段重建。
+
+<Aside type="note" title="补丁要先定价">
+R1 或结构性补丁必须引用 driver 实测的价格；没有价格的「我觉得换个结构会更好」会被拒绝（`UNPRICED_REOPEN`）。如果连续多次补丁都被回滚，reopen 预算耗尽，后续补丁会被 `REOPEN_CAPPED` 拒绝。这一层是为了防止外层变成无限试探。
+</Aside>
+
+### M0 审计：在第一次绿色之后回头查地基
+
+内层第一次通过正确性时，`run_two_layer()` 会停一次（M0 审计默认开启），做 **M0 审计**：让 teacher 对照硬件事实检查里程碑的 M0 是否真的成立。审计干净（`AUDIT_CLEAN`）就继续；发现地基缺陷，就走补丁流程，而不是让后面的里程碑绕着错误地基打补丁。
+
+这条机制对应第 8 章讲的「架构先定」：地基设定了全局天花板，越晚改越贵。审计把「回头改地基」从失败后的补救，变成第一次绿色时的固定检查。
+
+## 测量完整性：数字是怎么被保护的
+
+一个 kernel agent 最容易被骗的地方不是代码生成，而是测量。ForgeKernel 在这上面花了不成比例的工程。
+
+### 两套计时窗口
+
+`eval/timing.py` 同时测两套窗口：
+
+- **e2e**：每次调用后同步，包含 host 调度、Python wrapper、launch latency；
+- **device**：一次事件对包住 N 次背靠背调用，再除以 N；流不排空，host 成本被隐藏，剩下约等于 device time。
+
+两套窗口回答不同问题：e2e 是调用方真实付的延迟，device 是 kernel 质量。一次 run 只能选一个 gate window，默认 `device`，因为论文的比较对象是 kernel 质量；推理类 kernel 可以把 gate 改成 `e2e`。
+
+### 同作业配对与镜像顺序
+
+参考与学生 kernel 在**同一个 GPU 作业**里计时，先烧机几秒，然后按 **ref, kernel, kernel, ref** 的镜像顺序各测一次，每边取两次的均值。理由很具体：作业的第一个计时窗口最快（冷卡、满 boost），之后随温度缓慢漂移；如果总是先测 kernel 再测参考，2–5% 的温差会全部算在先测的一侧。
+
+每次评估还在 **3 个 workload** 上重复这套配对计时，顶层读数取几何平均。只在一个 shape 的一个输入上调好的 kernel，换一个 workload 可能从 1.05× 掉到 0.66×；所有 shape、所有输入组权重相同，没有「代表输入」。
+
+### `window.toml`：计时窗口里到底装了什么
+
+即使两套窗口都测对，还有一层更隐蔽的不公平：参考的计时调用与学生的计时调用**边界不同**。例如 backward 的参考走 autograd，直接拿到 forward 保存的中间量（cumsum、三角求解、LSE），而学生要从原始输入重建这些量；反过来，学生的签名可能直接拿到参考必须在窗口内计算的派生量。
+
+`window.toml` 把两边的输入/输出列表写死，并要求每个只出现在一边的条目声明一条 `[[asymmetry]]`：
+
+- `symmetrize`：两边都收到这个派生张量，由一个窗口外的 prep 步骤产生，谁都不要付；
+- `price`：付的一侧在窗口内做这件事，用该侧 NCU 的 per-kernel 表定价，最终报告一个「扣税后的比值」；
+- `accept`：这一侧确实付，但本 run 认账，只记录不扣。
+
+`loop start` 会双向检查：声明缺失、shape/dtype 不符、prep 产生了未声明的张量、计时调用改写了 prep 张量，都会拒绝开跑或判该轮失败。**原始比值始终是 gate；扣税后的比值只是诊断，不是折扣。**
+
+### timing audit：device 窗口也可能在测 host
+
+`timing_audit.py` 记录了一次很硬的实例：一个带 593 行 Python wrapper 的库参考，device 窗口读 0.4889 ms，预分配输出后 0.5003 ms，CUDA graph replay 后 0.2598 ms。**46% 的「device time」其实是每次调用的 Python 成本。** 在同一窗口里，学生 kernel 的读数与它自己的 NCU kernel 时间一致，所以窗口对一边有效、对另一边无效，最终比值偏向学生 1.86×。
+
+处理方式不是简单报错，而是**分侧处理**：
+
+- 参考侧 host-bound 是测量缺陷，不能让学生看到（否则会学成「把 Python 写薄就能赢」），也不能把它当目标；要么用 host-free 基础重测参考（graph replay / CUPTI kernel span），要么拒绝开跑。
+- 学生侧 host-bound 是真实的性能缺陷（每次调用重新编译、Python 分配、内部同步），要写进下一轮诊断。
+
+代码注释里还记了代价：一次 run 在这个错误目标上花了 11.5 小时，产出的结果无法引用。
+
+### 精度门与正确性监控
+
+`precision_gate.py` 在每个评估 JSON 里读一个 `precision` 块：每个输入组、每个输出，相对 float64 重跑的相对 L2 误差（学生 e_cand、参考 e_ref），以及 `e_cand` 是否在 `k*e_ref + floor` 内。它不改 `correctness.pass`，但按 card 的合同决定失败是否按正确性失败处理：
+
+- `strict`：失败即 REVERT（默认，适用于自带 bench 的 card）；
+- `official`：只记录；
+- `off`：不读（榜单卡默认，判据只归榜单）。
+
+`monitor/` 是最后一道：在循环结束后，用新种子与压力输入（放大、缩小、尖峰、零块、相同行、整数边界等 profile）重跑 judge，并从外部观察 kernel 的输出有没有 NaN/inf、两次调用是否一致。它**只记录，不改判，不喂给任何 agent**；唯一影响是 `forge run` 的退出码——报警的 kernel 不算达标。
+
+<Aside type="tip" title="可以搬走的一条">
+先问「这个数字是怎么测的」，再问「这个数字是多少」。ForgeKernel 把计时窗口、配对顺序、workload 覆盖、host 成本、精度误差、正确性监控都写成了独立模块；这些模块比 kernel 生成 prompt 更值得复用。
+</Aside>
+
+## 访问边界：从提示词到机械边界
+
+第 8 章讲了 L0（里程碑不给实现体）与 L1（teacher 算子无关）。在代码层，这两条不变量靠一组不同强度的机制维持。
+
+| 攻击面 | 机制 | 模块 | 局限 |
+| --- | --- | --- | --- |
+| 学生读参考源码 | 学生工作区是 single-branch clone；参考树单独放；deny 清单由任务推导，只能加不能减 | `taskcard.py`、`workspace.py`、`launch.deny_paths` | 用户自己把答案贴进任务就绕过了 |
+| 学生读密封参考 | 参考 seal 成密文；解密只在 GPU 作业内存里；密钥移出环境变量 | `sealref.py`、`eval/closed_ref.py` | 作业内若拿到密钥仍可解；靠后续 tripwire |
+| 学生上网抄实现 | 学生侧禁 WebFetch/WebSearch；shell 网络命令被拦截；Claude Code 沙箱拒绝出站连接 | `loop/agent_policy.py`、`scripts/agent_policy_hook.py` | 只对支持 project settings 的 CLI 有效；不是通用沙箱 |
+| 学生改 eval 放水 | 每轮开始把 harness 文件恢复到 card 版本；提交里改了 `eval/`、`gpu_entry.sh`、`ref_bin/` 就回滚；作业树再用 card 的 harness 覆盖 | `loop/harness_guard.py` | 只保护列出的路径；`notes/` 与 kernel 文件是学生的 |
+| 黑盒 teacher 看源码 | 源码密封；policy 同时拒绝本机与网络源码；GPU 作业里的 `cmd` 与 `notes/` 脚本过 guard | `sealref.py`、`scripts/blackbox-guard.sh` | guard 是 tripwire，不是边界；运行时构造的 URL 或自建镜像可以绕过 |
+| 知识库被算子算法污染 | L0 评审；条目只能指向来源，改写放 `docs/kb-provenance/`；机械 lint 抓专有名词 | `loop/kb_lint.py`、`docs/kb-harvest.md` | lint 抓不到不带专有名词的转述，仍需人眼 |
+| 运行被伪造 | judge 冻结在 `check/`；tolerance 冻结；确认阶段多次复测；正确性监控 | `judge.py`、`loop/cli.py`、`monitor/` | 监控只记录，不改判 |
+
+这张表最重要的不是「防线很多」，而是**每条都写了自己的局限**。例如 blackbox guard 自己承认是 tripwire：它扫描命令字符串与 `notes/` 脚本，但不理解运行时构造的 URL；真正的边界是密封与 policy，guard 只是让常见路径失败得更早、更可解释。
+
+同样，`harness_guard` 默认 `revert`，因为它保护的是判据本身；但它只保护 `eval/`、`gpu_entry.sh`、`ref_bin/`、`.gitattributes`，不保护 `notes/`——那是学生做探针的地方。**边界要写清「保护什么、不保护什么」，否则一条规则会给人虚假的安全感。**
+
+<Aside type="caution" title="成本与使用场景">
+一次运行是数小时 GPU 时间加前沿模型花费，而且 agent 在 driver 写好的策略里以跳过权限审批的方式运行。仓库建议在为这件事准备的机器上跑。开始前把墙钟、token 与费用三项预算都设上。工程解剖不等于生产建议：0.1.x 的接口与目录都会变。
+</Aside>
+
+## 支撑层：meta、skills、hw_kb 与测试
+
+前三者是 agent 的知识与工具，后者是 harness 的回归网。它们的共同点是：**都放在主仓库里，由 harness 统一分发，而不是散落在每个任务的提示词里。**
+
+| 资产 | 规模（2026-10-31） | 谁读 | 作用 |
+| --- | --- | --- | --- |
+| `meta/` | 19 份提示词（含 CUDA 变体） | teacher / student | 蒸馏、诊断、补丁、侦察、探针、收割；算子无关 |
+| `skills/` | 7 个 skill | 两个 agent | SASS、stall、timeline、orchestration、lever-pricing、job-env-check、ncu-trace |
+| `hw_kb/` | 192 条（cutedsl/sm90 54、cutedsl/sm100 74、cuda/sm100 64） | student / teacher | 硬件机制与示例代码；唯一允许含代码的产物 |
+| `tests/` | 80 个文件、1,850 个测试函数 | 开发者 / CI | 控制流、合同、护栏的回归网；CPU 可跑 |
+
+### skills 的双重身份
+
+每个 skill 是一个目录：`SKILL.md` 说明它是什么、怎么用；脚本实现具体工具，并以一行机器判词结束（`SASS-OK`、`SASS-FAIL`、`PROBE PASS` 等）。harness 在每轮 agent 回合前把全部 skill 镜像到 `<workspace>/.claude/skills/<name>/`，并在 git 里排除；同时把 GPU 作业需要的脚本 seed 到 card 的 `notes/`，这样探针可以 `import sass_tools` 或 `python3 notes/<tool>.py`。
+
+更有意思的是：harness 自己也 import 同一批脚本（`forgekernel.skills.<module>`），解析它们的判词。**同一份工具既是 agent 的文档，也是 harness 的解析对象**，不会出现「文档写一套、判据写另一套」。
+
+### hw_kb 的进入门槛
+
+知识库按 `hw_kb/<language>/<arch>/` 分树，一条条目一个文件，带 `TEMPLATE.md` 规定的字段。进入门槛不是「agent 觉得有用」，而是一次 GPU 探针认证：条目里的机制必须在目标 GPU 上跑得起来，并留下探针证据。仓库自己指出这道门的局限：**探针是同一个 agent 写的，只能证明机制跑得起来，不能证明这条经验该进知识库。** 人工复核还要盯两条轴：不能把某个算子的算法伪装成硬件机制混进去（L0，因为后面每个算子的学生都会读它），只能指向来源、不能改写来源（改写放 `docs/kb-provenance/`，不在 agent 读集里）。
+
+### 测试也是规格
+
+`tests/test_loop_driver.py` 用一个 `FakeBackend` 把「探针子循环、relaxed revert、平台期转 meta、prefix reuse」全部测成确定性序列；`tests/test_repo_hygiene.py` 把「主仓库不能 track `operators/` 或 `.artifacts/`」变成一条测试失败，而不是 code review 的口头约定；`tests/test_blackbox_guard.py` 按生产形态把 guard seed 进 `notes/` 再 source，避免「测试从 `scripts/` 跑永远看不到自命中」的盲区。
+
+**读这个仓库时，测试往往比实现更好读。** 它们是可执行的规格，告诉你每条规则在防什么。
+
+## 哪些工程实践可以搬走
+
+### 十件值得学的事
+
+1. **问题、运行、工作区分开。** 问题进 git，运行目录不进，工作区是独立 clone；一次运行不能改问题。
+2. **先快照，再开始。** 启动时复制任务并记摘要；之后所有步骤读快照，resume 也读快照。
+3. **确定性核心 + 注入式副作用边界。** 控制流只依赖一个六方法协议，测试用 fake backend，真实适配器集中在 `loop/cli.py`。
+4. **合同优先于提示词。** 里程碑五元组、judge 三文件、记录块、探针判词、计时窗口都是机器可检查的形状。
+5. **结构化轨迹，机械摘要。** 一轮一行 JSONL，只存客观事实；外层读机械摘要，需要时再下钻原始工件。
+6. **补丁是一笔事务。** 快照、归因、KEEP/REVERT/HOLD、回滚与死路记忆，缺一不可。
+7. **测同一个作业、同一个窗口、多个 workload。** 还要审计「这个窗口是不是在测 host」，否则比值会骗人。
+8. **默认密封、按推导拒绝。** deny 清单由任务推导，用户只能加；参考默认密封；策略写进 CLI 的 project settings，而不是只写在 prompt 里。
+9. **让失败成为一等公民。** NCU 不可用就降级；judge 不一致就重写；没有参考就先生成；补丁无收益就回滚；监控报警就不算达标。
+10. **用测试固化边界。** 仓库卫生、黑盒 guard、driver 控制流都进测试；测试是可执行的规格。
+
+### 三件不该照抄的事
+
+- **不要照抄规模。** 3.8 万行 harness、1.2 万行 driver 是大量真实事故与规则沉淀的结果，不是最小可行架构。自己搭 v0 时，先实现问题/运行/工作区分离、一份 judge、一条 JSONL 轨迹与一个回滚点。
+- **不要照抄事故驱动的复杂度。** 每条规则都有故事，但你的系统还没有那些故事。先有失败，再加防线；否则你会得到一套自己解释不清的规则。
+- **不要照抄默认值。** 默认模型、预算、CUDA/CuTe 版本、Hopper/Blackwell 目标都是 2026-10 的选择；换模型、换硬件、换算子都要重跑对照。JustGoal 的结论仍然成立：专用 harness 必须对同模型、同 scope 的 goal-only 基线证明收益。
+
+### 如果只保留五个模块
+
+| 保留 | 为什么 | 可以后补 |
+| --- | --- | --- |
+| `task` + `runs` | 问题与运行分离，快照与 resume 的地基 | 榜单模式 |
+| `judge` + `taskcard` | 判据、容差、card 生成 | 参考密封、leaderboard 评测 |
+| `trajectory` + `parse` | 一行一条记录、机械摘要 | 复杂的 digest 字段 |
+| 一个 driver 循环 + 一个回滚点 | 能跑、能停、能退 | 两层循环、探针计费、reopen closure |
+| 一个测量审计 + 一个访问护栏 | 数字可信、答案不可见 | 精度门、监控、harness overlay |
+
+## 代码导读路线
+
+不要按文件名顺序读。按「一次 run 的生命周期」读，四遍就够：
+
+| 遍 | 时间 | 读什么 | 回答什么问题 |
+| --- | --- | --- | --- |
+| 第一遍 | 30 分钟 | `README`、`docs/design/v1-launch.md`、`forge --help`、`forge help internal` | 用户能做什么，内部命令有哪些 |
+| 第二遍 | 2 小时 | `__main__.py` → `launch.py` → `runs.py` → `task.py` → `taskcard.py` → `judge.py` | 一次 run 怎么从任务变成 card 与 check |
+| 第三遍 | 半天 | `driver.py` 的 `run_inner_iteration`、`run_inner_loop`；`parse.py`；`inner/trajectory.py` | 一轮迭代怎么走，记录长什么样 |
+| 第四遍 | 2–3 天 | `run_two_layer`、`meta_trajectory.py`、`resume/invalidation.py`；`agent_policy.py`、`harness_guard.py`、`window_contract.py` | 补丁怎么回滚，续跑怎么算，护栏怎么生效 |
+
+几个具体入口：
+
+```bash
+forge --help
+forge help internal
+forge new tasks/rmsnorm --dry-run
+pytest -q                       # 需要 pytest、torch、safetensors；不需要 GPU
+```
+
+读测试时先看 `tests/test_loop_driver.py` 开头的 `_MILESTONE` 与 `FakeBackend`：它们把里程碑、评估 JSON、NCU 输出、agent 回复都压缩成最小样本，是理解控制流最快的路径。读护栏时先看每个模块的文档字符串——这个仓库的 docstring 写的是「为什么」，不是「是什么」，信息密度很高。
+
+## 常见误区
+
+| 误区 | 为什么容易发生 | 修正 |
+| --- | --- | --- |
+| `driver.py` 有 1.2 万行，肯定是一团泥 | 行数看起来像复杂度 | 复杂度主要来自事故驱动的规则；控制流只依赖六方法协议，测试用 fake backend 确定性运行 |
+| 提示词不是代码，不用版本管理 | prompt 看起来像自然语言 | 提示词是算子无关的、参与渲染的工程资产；L1 要求换算子不改一行 |
+| milestone 是参考实现的自然语言翻译 | 「蒸馏」容易这样理解 | milestone 是优化路径的结构，给起点、决策、参数，不给实现体 |
+| judge 就是参考实现 | 两者都算同一个算子 | judge 是独立会话产出的 PyTorch 语义实现，与参考对齐后冻结，且不追求性能 |
+| 测试都要 GPU | kernel 项目听起来离不开卡 | 1,850 个测试在 CPU 上跑；GPU 只出现在提交的作业里 |
+| blackbox 靠 prompt 约束 | 文档里到处是「不能看」 | 真正起作用的是密封、policy、沙箱与 guard；guard 自己承认是 tripwire |
+| NCU 不可用就跑不了 | 整个诊断体系围绕 NCU | 运行会降级为只按计时推进，机制线与定价跳过，报告会注明 |
+| 机制越多越可靠 | 每个机制都解决一个真问题 | JustGoal 要求专用机制对同模型、同 scope 的 goal-only 基线证明收益 |
+| 0.1.0 可以直接上生产 | 目录、测试、文档都很完整 | 仓库自陈早期版本；成本、模型锁定、硬件目标与接口都会变 |
+
+## 本章自检
+
+- [ ] 我能画出 problem、run、operator tree 三层，并说出每层是否进 git、由谁写、生命周期多长。
+- [ ] 我能按七段生命周期复述一次 `forge run`，并说出 judge 与容差在哪一段冻结。
+- [ ] 我能解释 `snapshot_sha256` 保护的是什么，为什么改任务要新建 run。
+- [ ] 我能说出 `DriverBackend` 的六个方法，以及为什么 `driver.py` 的控制流能用 fake backend 在 CPU 上确定性测试。
+- [ ] 我能复述里程碑五元组、gate 的三类证据，以及 `[VERIFY:]` 的作用。
+- [ ] 我能说清 relaxed revert、预绿构建期、placeholder ledger 各解决什么问题。
+- [ ] 我能解释补丁事务的 KEEP/REVERT/HOLD，以及 prefix reuse 与 reopen closure 的区别。
+- [ ] 我能说出至少三道测量防线，并指出其中一道的局限。
+- [ ] 我能说出至少三道访问防线，并解释为什么 guard 只是 tripwire。
+- [ ] 我能列出五条可以搬走的工程实践，以及三条不该照抄的东西。
+
+### 练习
+
+<Exercise level="L3" title="给一次 run 写工程解剖报告" time="90 分钟">
+
+**目标**：不写 kernel，也不跑 GPU，只读 ForgeKernel 的公开仓库与文档，把一次 run 的工程结构拆成一张可复核的解剖报告。这道题练的是「读懂一个 harness 的骨架」，不是复现它的结果。
+
+**背景**：第 8 章教你判断 ForgeKernel 的设计是否成立；本页教你找到它的代码落点。真实的 harness 往往有几万行，读不完也不该逐行读。你需要先建立三层地图，再沿一次 run 的生命周期追关键文件，最后挑一条规则做「威胁—机制—局限」分析。
+
+**任务**：
+
+1. **画三层地图**。用一张图或一张表，列出 problem、run、operator tree 三层的目录、写入者、读取者、是否进 git、生命周期。至少标出 `tasks/<op>/`、`.artifacts/<task>_<id>/`、`operators/<op>/`、`operators/_<op>ref/` 四个位置。
+2. **追一次 run**。按 `forge new` → judge → card → calibrate → distill → loop → finish 七段，为每段写出：入口函数或文件、主要产物、一个失败路径。至少引用三个真实文件路径。
+3. **拆一条记录**。从 `inner/trajectory.py` 的 `IterationRecord` 里选 8 个字段，分成「决策、正确性、计时、机器、证据、复用」六组，说明每个字段为什么必须客观、不能写学生的主观分析。
+4. **审一条护栏**。从 `agent_policy.py`、`harness_guard.py`、`sealref.py`、`window_contract.py` 中选一个，写清：它防什么威胁、怎么机械实现、明确不覆盖什么。至少举一个它能被绕过的场景。
+5. **设计一条新规则**。假设你要加一条「学生不得在 kernel 里调用 PyTorch 算子」的规则。写清它应该加在哪一层（prompt、parse、judge、driver、guard），以及为什么不该加在另外几层。
+6. **写一个 fake backend 测试计划**。为第 5 步的规则设计一个 CPU 可跑的测试：fake 的 agent 回复、fake 的 GPU 日志、期望的 verdict 与记录字段。
+7. **写「只保留五个模块」清单**。如果从零搭一个 v0，只保留五个模块，你选哪五个？每个用一句话说明不可替代性。
+
+**验收标准**：
+
+- 三层地图能看出「一次 run 不能改问题」与「学生与参考树分离」两条不变量；
+- 七段生命周期每段都有入口、产物与失败路径，至少三处路径可在公开仓库中定位；
+- 八个字段的分组合理，能说明「为什么主观分析不进轨迹」；
+- 护栏分析包含明确的局限与绕过场景，不是只列功能；
+- 新规则落在正确层级，并说明为什么不在其他层；
+- 测试计划覆盖一个正常路径与一个违规路径，且不需要 GPU；
+- 五模块清单包含问题/运行分离、判据、轨迹、循环与至少一道护栏。
+
+**无 GPU 替代**：本题全程不需要 GPU，也不需要运行 `forge`。只读公开仓库、文档与测试即可完成。如果想更进一步，把第 5 步的规则写成一段伪代码或一个 `pytest` 用例，交给同学 review：对方能否仅凭你的描述判断这条规则应该放在哪一层？
+
+<details>
+<summary>提示</summary>
+
+第 1 步最容易写成目录树。不要只列文件，要写「谁写、谁读、是否进 git」。这三列决定了很多设计：为什么 `.artifacts` 不进 git，为什么参考树单独放，为什么学生工作区是 clone。
+
+第 2 步不要从 `driver.py` 第一行读。先看 `launch.py` 的 `_drive`，它把七段串起来；再看 `run_loop` 如何把任务翻译成 `loop/cli.py` 的参数。失败路径可以来自代码里的异常类型，也可以来自设计文档的「拒绝开跑」条件。
+
+第 4 步的关键是「局限」。每条护栏都有边界：agent policy 依赖 CLI 支持 project settings；harness guard 只保护列出的路径；sealref 假设密钥不在学生手里；window.toml 只检查声明，不检查声明的语义是否合理。写出局限，才算真正读懂。
+
+第 5 步没有唯一答案。判断标准是：这条规则需要看什么信息、在什么时候生效、失败后怎么处理。如果它需要看 kernel 源码，可能属于 judge 或静态检查；如果需要看提交 diff，可能属于 guard；如果只是提醒，放 prompt。把它放在最便宜的、能可靠拦住问题的层。
+
+第 7 步的「五个」是硬约束。它会逼你放弃一些看起来重要、但 v0 可以后补的东西（榜单、自演化、复杂监控）。这正是工程判断力。
+
+</details>
+
+</Exercise>
+
+## 延伸阅读
+
+- [ForgeKernel 仓库](https://github.com/OpenBMB/ForgeKernel)：本页所有代码事实的一手来源，核对于 2026-10-31。
+- [V1 上线设计](https://github.com/OpenBMB/ForgeKernel/blob/main/docs/design/v1-launch.md)：任务定义、judge 与容差、运行目录、恢复语义，以及「从上线面上拿掉了什么」。
+- [里程碑蒸馏设计](https://github.com/OpenBMB/ForgeKernel/blob/main/docs/design/milestone-distillation.md)：L0/L1 不变量、两层循环的同构、诊断分类与机械摘要的完整推导。
+- [里程碑模板](https://github.com/OpenBMB/ForgeKernel/blob/main/docs/milestones-template.md)与 [meta-milestone](https://github.com/OpenBMB/ForgeKernel/blob/main/meta_milestone.md)：五元组、DAG、gate、`[VERIFY:]` 与机器可读骨架。
+- [card 工作区契约](https://github.com/OpenBMB/ForgeKernel/blob/main/src/forgekernel/card_template/README.md)：两套计时窗口、同作业配对、三 workload 几何平均与 `window.toml` 的完整规则。
+- [黑盒模式](https://github.com/OpenBMB/ForgeKernel/blob/main/docs/blackbox-mode.md)：密封、密钥、guard 与「tripwire 不是边界」的自我限定。
+- [正确性监控](https://github.com/OpenBMB/ForgeKernel/blob/main/docs/correctness-monitor.md)：输入 profile、报警分级与「只记录不改判」。
+- [知识库收割](https://github.com/OpenBMB/ForgeKernel/blob/main/docs/kb-harvest.md)：条目怎么进、怎么审，以及 lint 抓不到的那类盲区。
+- [driver 测试](https://github.com/OpenBMB/ForgeKernel/blob/main/tests/test_loop_driver.py)：用 `FakeBackend` 把两层循环的控制流写成可执行规格。
+- [自演化脚本](https://github.com/OpenBMB/ForgeKernel/blob/main/scripts/self_evolve.py)：把 best kernel 写成下一代 reference 的完整实现。
+- 上一章回顾：[ForgeKernel：让参考实现自己变成基线](/guide/forgekernel/)；下一章 [Skills 与经验沉淀](/guide/skills/)，把本页的提示词、工具与知识库写成一类可复用资产。
+
+> 来源与版本：本页事实以 OpenBMB/ForgeKernel 仓库当前公开代码与文档（`src/forgekernel/`、`tests/`、`docs/design/`、`meta_milestone.md`、`skills/`、`hw_kb/`）为一手来源，克隆核对于 2026-10-31（HEAD `5030503`，版本 0.1.0）。仓库与论文都在早期阶段，命令、模块、行数与默认值都可能变化，请以官方为准。完整链接见[资料库](/resources/)。

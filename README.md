@@ -21,6 +21,7 @@
 | 6 TIRx | Agent 能拿到什么工具 | 列一份工具层清单 |
 | 7 BBuf skills | 经验怎么变成可检索的上下文 | 用 PR 档案给 fusion 定成立条件 |
 | 8 ForgeKernel | 优化上限怎么自己往前走 | 把一个算子蒸馏成 M0 骨架 |
+| 8+ ForgeKernel 工程解剖 | 一次 run 在代码里怎么跑起来 | 给一次 run 写工程解剖报告 |
 | 9 Skills 与经验沉淀 | 怎么让 Agent 冷启动更快 | 写一个自己的 skill |
 | 10 自建 harness | 怎么把这些零件装成一个系统 | 设计自己的 v0 harness |
 
@@ -30,16 +31,16 @@
 - **Humanize（Judgement Engineering）** —— 写 / 判分离：Claude 写代码，Codex 用全新上下文 review，只有 reviewer 可以宣布完成；配 RLCR 轮次协议与 72 道机械检查。
 - **TIRx Harness** —— MLC 开源的编译器 harness：把 kernel 知识库、编译期分析与基准服务接给 Agent，看一个成熟 harness 把工具层做成了什么样。
 - **BBuf skills** —— 把一线 Infra 经验沉淀成 Agent 可检索的 skill 与 118 份模型 PR 历史档案，说明经验怎么变成带审计日期的上下文。
-- **ForgeKernel** —— OpenBMB 开源的自演化 kernel agent：架构先定的 M0 里程碑、teacher 与 student 两层循环，以及「每轮被接受的 kernel 成为下一轮参考实现」的自演化回路；附 JustGoal 给出的 goal-only 对照。
+- **ForgeKernel** —— OpenBMB 开源的自演化 kernel agent：架构先定的 M0 里程碑、teacher 与 student 两层循环，以及「每轮被接受的 kernel 成为下一轮参考实现」的自演化回路；附 JustGoal 给出的 goal-only 对照。配套的 [工程解剖](/guide/forgekernel-engineering/) 沿一次 run 的生命周期拆开目录分层、模块职责、合同、轨迹、补丁事务与测量完整性。
 
 五个案例共同指向一个结论：**Agent 越强，Evaluator 越重要；而 Agent 越强，Harness 越需要证明自己。**
 
 ## 内容一览
 
-- 10 篇正文（导读 + 9 章），每章统一结构：导语 → 学习目标 → 概念 → 架构 → 真实案例 → 常见误区 → 本章自检（含练习）→ 延伸阅读
-- 术语表：107 条术语，附英文、解释与相关章节
-- 练习册：13 道练习，分 L1 概念 / L2 分析 / L3 动手 / L4 综合四级，含验收标准、折叠提示与**无 GPU 替代方案**
-- 7 张手绘 SVG 架构图（Agent 循环、KDA 流程、Humanize 写判分离、Flame Chase、TIRx Harness 分层、BBuf skills 结构、ForgeKernel 两层循环），深浅色自适应
+- 10 篇正文（导读 + 9 章）加 1 篇 ForgeKernel 工程解剖，每章统一结构：导语 → 学习目标 → 概念 → 架构 → 真实案例 → 常见误区 → 本章自检（含练习）→ 延伸阅读
+- 术语表：113 条术语，附英文、解释与相关章节
+- 练习册：14 道练习，分 L1 概念 / L2 分析 / L3 动手 / L4 综合四级，含验收标准、折叠提示与**无 GPU 替代方案**
+- 9 张手绘 SVG 架构图（Agent 循环、KDA 流程、Humanize 写判分离、Flame Chase、TIRx Harness 分层、BBuf skills 结构、ForgeKernel 两层循环、ForgeKernel 工程分层与 run 生命周期），深浅色自适应
 - 资料库：官方项目、论文、解读与工具链，每条附一句话说明与核对日期
 - 更新日志：记录版本演进
 

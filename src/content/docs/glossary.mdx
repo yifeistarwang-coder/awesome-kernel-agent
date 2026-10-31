@@ -31,6 +31,12 @@ description: 按主题整理 Kernel Agent 领域的核心术语，包含英文�
 | 里程碑 | milestone | 通往某个算子的优化路径结构：哪些决策重要、什么顺序、什么触发什么；只给决策与参数，不含参考实现的实现体。 | [ForgeKernel](/guide/forgekernel/) |
 | 元里程碑 | meta-milestone | 把算子蒸馏成里程碑的策略本身；跨算子复用，是 teacher 提示词的依据。 | [ForgeKernel](/guide/forgekernel/) |
 | 架构先定 | architecture-first | 把最容易写错、最难改的结构性决策（切分、tile、warp 角色、寄存器与共享内存预算、编排）全部放进第一个里程碑并冻结的课程设计原则。 | [ForgeKernel](/guide/forgekernel/) |
+| 算子树 | operator tree / card | ForgeKernel 中每个算子一份的独立 git 仓库：学生改 kernel，teacher 写 milestone，harness 放入 eval、计时入口与合同。 | [工程解剖](/guide/forgekernel-engineering/) |
+| 运行快照 | run snapshot | 启动时复制任务并记录摘要，之后所有步骤只读快照；一次 run 因此不能改问题。 | [工程解剖](/guide/forgekernel-engineering/) |
+| 合同 | contract | 把必须成立的条件写成机器可检查的形状：里程碑五元组、judge 三文件、计时窗口、交付记录块。 | [工程解剖](/guide/forgekernel-engineering/) |
+| 宽松回滚 | relaxed revert | 只有正确性失败才回滚；性能回退可以保留，作为后续决策的脚手架。 | [工程解剖](/guide/forgekernel-engineering/) |
+| 补丁事务 | patch transaction | 外层补丁先快照，再按前后指标归因，KEEP / REVERT / HOLD；无收益则回滚并记入死路表。 | [工程解剖](/guide/forgekernel-engineering/) |
+| 计时窗口 | timing window | 同一次评估里的 e2e 与 device 两套读数；同作业镜像配对，避免温差与 host 成本污染比值。 | [工程解剖](/guide/forgekernel-engineering/) |
 
 ## GPU 与性能
 
@@ -136,4 +142,4 @@ description: 按主题整理 Kernel Agent 领域的核心术语，包含英文�
 
 遇到不熟悉的缩写时，先在本页定位它属于“流程”“性能”还是“评测”，再点进对应章节看上下文。写报告或做分享时，建议同时写出术语的英文与适用条件，例如“在 B200、FP8、固定 shape 下报告 1.7×”，避免把一个条件下的数字推广成普遍结论。
 
-> 来源与版本：术语解释以本站各章与所列官方材料为基线，最后核对 2026-10-29，v1.1 校订核对于 2026-10-30，v1.5 新增的 ForgeKernel 相关条目核对于 2026-10-31。上游项目仍在快速演进，具体能力与数字以官方为准。完整链接见[资料库](/resources/)。
+> 来源与版本：术语解释以本站各章与所列官方材料为基线，最后核对 2026-10-29，v1.1 校订核对于 2026-10-30，v1.5 新增的 ForgeKernel 相关条目核对于 2026-10-31，v1.6 新增的工程解剖条目同样核对于 2026-10-31。上游项目仍在快速演进，具体能力与数字以官方为准。完整链接见[资料库](/resources/)。
